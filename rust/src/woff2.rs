@@ -307,7 +307,7 @@ fn WoffDecompress(data: &[u8], check_format: u32) -> bool {
                 
                 // encodingRecord.subtable.setLanguage(ReadUInt16(&uncompressed_buf, &mut _cnt));
 
-
+                // match encodingRecord.subtable
 
                 cmap.setEncodingRecords(encodingRecord);
             }
