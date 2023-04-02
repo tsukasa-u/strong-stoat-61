@@ -1,7 +1,9 @@
-use std::{sync::mpsc::RecvTimeoutError, error::Error};
+
+#![allow(unused_variables, non_snake_case, dead_code, non_camel_case_types)]
 
 pub const kLocaTableTag: u32 = 0x6c6f6361;
 pub const kWoff2FlagsTransform: u32 = 1 << 8;
+
 pub enum knownTableTags{
     cmap, head, hhea, hmtx, maxp, name, OS_2, post, cvt	, glyf, loca, prep, CFF	, VORG, EBDT,
     EBLC, gasp, hdmx, kern, LTSH, PCLT, VDMX, vhea, vmtx, BASE, GDEF, GPOS, GSUB, EBSC, JSTF, MATH,
@@ -324,120 +326,3 @@ impl Woff2Collection {
     }
 }
 
-#[derive(Default)]
-pub struct Woff2CampSubTable {
-    format: u16,
-    offset: u16,
-    length: u16,
-    src_offset: u32,
-    src_length: u32,
-}
-
-impl Woff2CampSubTable {
-    pub fn setFormat(&mut self, val: u16) -> bool {
-        self.format = val;
-        return true;
-    }
-
-    pub fn getFormat(&self) -> Option<u16> {
-        Some(self.format)
-    }
-}
-
-#[derive(Default)]
-pub struct Woff2EncodingRecord {
-    platformID: u16,
-    encodingID: u16,
-    subtableOffset: u32,
-    subtable: Woff2CampSubTable,
-    formatType: u16,
-}
-
-impl Woff2EncodingRecord {
-    pub fn setPlatformID(&mut self, val:u16) {
-        self.platformID = val;
-    }
-
-    pub fn setEncodingID(&mut self, val: u16) {
-        self.encodingID = val;
-    }
-
-    pub fn setSubtableOffset(&mut self, val: u32) {
-        self.subtableOffset = val;
-    }
-
-    pub fn computeFormatType(&mut self) -> bool {
-        if self.platformID == 0 {
-            // if encodingRecord.encodingID == 0 || encodingRecord.encodingID == 1 || encodingRecord.encodingID == 2 { return false; }
-            self.formatType = match self.encodingID {
-                3 => (1 << 4) | (1 << 6),
-                4 => (1 << 10) | (1 << 12),
-                5 => 1 << 14,
-                6 => 1 << 13,
-                _ => return false
-            };
-        } else if self.platformID == 1 {
-            //  Macintosh Platform
-            //  Go to name
-            return false;
-        } else if self.platformID == 2 {
-            self.formatType = match self.encodingID {
-                0 => 1,
-                1 => 1,
-                2 => 1,
-                _ => return false
-            };
-        } else if self.platformID == 3 {
-            self.formatType = match self.encodingID {
-                0 => 1 << 4,
-                1 => 1 << 4,
-                2 => 0,
-                3 => 0,
-                4 => 0,
-                5 => 0,
-                6 => 0,
-                7 => 0,
-                8 => 0,
-                9 => 0,
-                10 => 1 << 12,
-                _ => return false
-            };
-        } else if self.encodingID == 4 {
-            self.formatType = (1 << 0) | (1 << 6);
-            // return false;
-        } else {
-            return false;
-        }
-        return true;
-    }
-
-    pub fn getFormatType(&self) -> Option<u16> {
-        Some(self.formatType)
-    }
-
-    pub fn checkFormatType(&self) -> bool {
-        return self.getFormatType().unwrap() == self.subtable.getFormat().unwrap();
-    }
-}
-
-#[derive(Default)]
-pub struct Woff2Cmap {
-    version: u16,
-    numTables: u16,
-    encodingRecords: Vec<Woff2EncodingRecord>,
-}
-
-impl Woff2Cmap {
-    pub fn setVersion(&mut self, val:u16) {
-        self.version = val;
-    }
-
-    pub fn setNumtables(&mut self, val: u16) -> bool {
-        self.numTables = val;
-        return val > 0;
-    }
-
-    pub fn setEncodingRecords(&mut self, val: Woff2EncodingRecord) {
-        self.encodingRecords.push(val);
-    }
-}
