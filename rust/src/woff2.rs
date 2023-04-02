@@ -1,83 +1,82 @@
 
 #![allow(unused_variables, non_snake_case, dead_code, non_camel_case_types)]
 
-use std::ptr::read;
-
 // use std::io::Read;
 // use std::io::Write;
 use brotli;
 use rand::seq::SliceRandom;
 
-use crate::reader;
+use crate::woff2_reader::*;
 use crate::woff2_def::*;
+use crate::woff2_cmap::*;
 
 fn getWOFF2Hedder(data: &[u8], cnt: &mut usize, header: &mut Woff2Header) -> bool {
     
     // UInt32	signature	0x774F4632 'wOF2'
-    // let signature: u32 = reader::ReadUInt32(data, cnt);
+    // let signature: u32 = ReadUInt32(data, cnt);
     // if signature != 0x774F4632 { return false; }
-    if !header.setSignature(reader::ReadUInt32(data, cnt)) { return false; }
+    if !header.setSignature(ReadUInt32(data, cnt)) { return false; }
 
     // UInt32	flavor	The "sfnt version" of the input font.
-    // let flavor: u32 = reader::ReadUInt32(data, cnt);
-    header.setFlavor(reader::ReadUInt32(data, cnt));
+    // let flavor: u32 = ReadUInt32(data, cnt);
+    header.setFlavor(ReadUInt32(data, cnt));
 
     // UInt32	length	Total size of the WOFF file.
-    // let length: u32 = reader::ReadUInt32(data, cnt);
+    // let length: u32 = ReadUInt32(data, cnt);
     // if length == 0 { return false; }
 
     // UInt16	numTables	Number of entries in directory of font tables.
-    // let numTables: u16 = reader::ReadUInt16(data, cnt);
+    // let numTables: u16 = ReadUInt16(data, cnt);
     // if numTables == 0 { return false; }
-    if !header.setNumTables(reader::ReadUInt16(data, cnt)) { return false; }
+    if !header.setNumTables(ReadUInt16(data, cnt)) { return false; }
     
     // UInt16	reserved	Reserved; set to 0.
-    // let reserved: u16 = reader::ReadUInt16(data, cnt);
-    header.setReserved(reader::ReadUInt16(data, cnt));
+    // let reserved: u16 = ReadUInt16(data, cnt);
+    header.setReserved(ReadUInt16(data, cnt));
 
     // UInt32	totalSfntSize	Total size needed for the uncompressed font data, including the sfnt header, directory, and font tables (including padding).
-    // let totalSfntSize: u32 = reader::ReadUInt32(data, cnt);
-    if !header.SetTotalSfntSize(reader::ReadUInt32(data, cnt)) { return false; }
+    // let totalSfntSize: u32 = ReadUInt32(data, cnt);
+    if !header.SetTotalSfntSize(ReadUInt32(data, cnt)) { return false; }
 
     // UInt32	totalCompressedSize	Total length of the compressed data block.
-    // let totalCompressedSize: u32 = reader::ReadUInt32(data, cnt);
-    if !header.setTotalCompressedSize(reader::ReadUInt32(data, cnt)) { return false; }
+    // let totalCompressedSize: u32 = ReadUInt32(data, cnt);
+    if !header.setTotalCompressedSize(ReadUInt32(data, cnt)) { return false; }
 
     // UInt16	majorVersion	Major version of the WOFF file.
-    // let majorVersion: u16 = reader::ReadUInt16(data, cnt);
-    header.setMajorVersion(reader::ReadUInt16(data, cnt));
+    // let majorVersion: u16 = ReadUInt16(data, cnt);
+    header.setMajorVersion(ReadUInt16(data, cnt));
 
     // UInt16	minorVersion	Minor version of the WOFF file.
-    // let minorVersion: u16 = reader::ReadUInt16(data, cnt);
-    header.setMinorVersion(reader::ReadUInt16(data, cnt));
+    // let minorVersion: u16 = ReadUInt16(data, cnt);
+    header.setMinorVersion(ReadUInt16(data, cnt));
 
     // UInt32	metaOffset	Offset to metadata block, from beginning of WOFF file.
-    // let metaOffset: u32 = reader::ReadUInt32(data, cnt);
+    // let metaOffset: u32 = ReadUInt32(data, cnt);
     // if metaOffset == 0 { return false; }
-    if !header.setMetaOffset(reader::ReadUInt32(data, cnt)) { return false; }
+    if !header.setMetaOffset(ReadUInt32(data, cnt)) { return false; }
 
     // UInt32	metaLength	Length of compressed metadata block.
-    // let metaLength: u32 = reader::ReadUInt32(data, cnt);
+    // let metaLength: u32 = ReadUInt32(data, cnt);
     // if metaLength == 0 { return false; }
-    if !header.setMetaLength(reader::ReadUInt32(data, cnt)) { return false; }
+    if !header.setMetaLength(ReadUInt32(data, cnt)) { return false; }
 
     // UInt32	metaOrigLength	Uncompressed size of metadata block.
-    // let metaOrigLength: u32 = reader::ReadUInt32(data, cnt);
+    // let metaOrigLength: u32 = ReadUInt32(data, cnt);
     // if metaOrigLength == 0 { return false; }
-    if !header.setMetaOrigLength(reader::ReadUInt32(data, cnt)) { return false; }
+    if !header.setMetaOrigLength(ReadUInt32(data, cnt)) { return false; }
 
     // if !(metaOffset >= length || length - metaOffset < metaLength) { return false; }
     if !header.checkMetaLength() { return false; }
 
     // UInt32	privOffset	Offset to private data block, from beginning of WOFF file.
-    // let privOffset: u32 = reader::ReadUInt32(data, cnt);
+    // let privOffset: u32 = ReadUInt32(data, cnt);
     // if privOffset == 0 { return false; }
-    if !header.setPrivOffset(reader::ReadUInt32(data, cnt)) { return false; }
+    if !header.setPrivOffset(ReadUInt32(data, cnt)) { return false; }
 
     // UInt32	privLength	Length of private data block.
-    // let privLength: u32 = reader::ReadUInt32(data, cnt);
+    // let privLength: u32 = ReadUInt32(data, cnt);
     // if privLength == 0 { return false; }
-    if !header.setPrivLength(reader::ReadUInt32(data, cnt)) { return false; }
+    if !header.setPrivLength(ReadUInt32(data, cnt)) { return false; }
 
     // if !(privOffset >= length || length - privOffset < privLength) { return false; }
 
@@ -109,9 +108,9 @@ fn getWOFF2TableDirectory(data: &[u8], cnt: &mut usize, tables: &mut Vec::<Woff2
         let mut table: &mut Woff2Table = &mut (*tables)[i];
 
         // UInt8	flags	table type and flags
-        // let flags: u8 = reader::ReadUInt8(data, cnt);
+        // let flags: u8 = ReadUInt8(data, cnt);
         // if flags == 0 { return 0; };
-        if !table.setFlags(reader::ReadUInt8(data, cnt)) { return 0; }
+        if !table.setFlags(ReadUInt8(data, cnt)) { return 0; }
 
         // let knownTag: u8 = flags & 0x3f;
         // let transformationVersion: u8 = (flags >> 6) & 0x03;
@@ -119,7 +118,7 @@ fn getWOFF2TableDirectory(data: &[u8], cnt: &mut usize, tables: &mut Vec::<Woff2
         // let mut tag = knownTag;
         if table.checkTagEx() {
             // UInt32	tag	4-byte tag (optional)
-            table.setExTag(reader::ReadUInt32(data, cnt));
+            table.setExTag(ReadUInt32(data, cnt));
         }
 
         let mut _flags: u32 = 0;
@@ -135,7 +134,7 @@ fn getWOFF2TableDirectory(data: &[u8], cnt: &mut usize, tables: &mut Vec::<Woff2
 
         // UIntBase128	origLength	length of original table
         let mut origLength: u32 = 0;
-        reader::ReadUIntBase128(data, &mut origLength, cnt);
+        ReadUIntBase128(data, &mut origLength, cnt);
         // if origLength == 0 { return 0; }
         if !table.setOrigLength(origLength) { return 0; }
 
@@ -144,7 +143,7 @@ fn getWOFF2TableDirectory(data: &[u8], cnt: &mut usize, tables: &mut Vec::<Woff2
         // UIntBase128	transformLength	transformed length (if applicable)
         let mut transformLength: u32 = origLength;
         if (_flags & kWoff2FlagsTransform) != 0 {
-            reader::ReadUIntBase128(data, &mut transformLength, cnt);
+            ReadUIntBase128(data, &mut transformLength, cnt);
             table.setTransformLength(transformLength);
 
             if table.getTag().unwrap() == knownTableTags::loca as u8 && transformLength > 0 { return 0; }
@@ -170,13 +169,13 @@ fn isWOFF2CollectionDirectory(header: Woff2Header) -> bool {
 fn getWOFF2CollectionDirectory(data: &[u8], cnt: &mut usize, collections: &mut Woff2Collection) -> bool {
 
     // UInt32	version	The Version of the TTC Header in the original font.
-    // let version: u32 = reader::ReadUInt32(data, cnt);
+    // let version: u32 = ReadUInt32(data, cnt);
     // if version != 0x00010000 && version != 0x00020000 { return false; }
     // (*collections).version = version;
-    collections.serVersion(reader::ReadUInt32(data, cnt));
+    collections.serVersion(ReadUInt32(data, cnt));
 
     // 255UInt16	numFonts	The number of fonts in the collection.
-    let numFonts: u16 = reader::ReadUInt16(data, cnt);
+    let numFonts: u16 = ReadUInt16(data, cnt);
     // if numFonts == 0 { return false; };
     // (*collections).numFonts = numFonts;
     collections.setNumFonts(numFonts);
@@ -186,20 +185,20 @@ fn getWOFF2CollectionDirectory(data: &[u8], cnt: &mut usize, collections: &mut W
         let mut fontEntry: Woff2FontEntry = Default::default();
 
         // 255UInt16	numTables	The number of tables in this font
-        let numTables: u16 = reader::ReadUInt16(data, cnt);
+        let numTables: u16 = ReadUInt16(data, cnt);
         // if numTables == 0 { return false; }
         // fontEntry.numTables = numTables as u16;
         if !fontEntry.setNumtables(numTables) {return false; }
     
         // UInt32	flavor	The "sfnt version" of the font
-        // let flavor: u32 = reader::ReadUInt32(data, cnt);
+        // let flavor: u32 = ReadUInt32(data, cnt);
         // fontEntry.flavor = flavor;
-        fontEntry.setFlavor(reader::ReadUInt32(data, cnt));
+        fontEntry.setFlavor(ReadUInt32(data, cnt));
     
         // 255UInt16	index[numTables]	The index identifying an entry in the Table Directory for each table in this font (where the index of the first Table Directory entry is zero.)
         // 
         for i in 0..numTables {
-            fontEntry.setIndex(reader::Read255UInt16(data, cnt));
+            fontEntry.setIndex(Read255UInt16(data, cnt));
         }
         // collections.FontEntrys.push(fontEntry);
         collections.setFontEntrys(fontEntry);
@@ -274,29 +273,42 @@ fn WoffDecompress(data: &[u8], check_format: u32) -> bool {
             
             // let mut _cnt: usize = 0;
             let mut _cnt: usize = table.getSrc_offset().unwrap() as usize;
-            // cmap.version = reader::ReadUInt16(cmap_buf, &mut _cnt);
-            cmap.setVersion(reader::ReadUInt16(&uncompressed_buf, &mut _cnt));
+            // cmap.version = ReadUInt16(cmap_buf, &mut _cnt);
+            cmap.setVersion(ReadUInt16(&uncompressed_buf, &mut _cnt));
 
-            // cmap.numTables = reader::ReadUInt16(cmap_buf, &mut _cnt);
-            let numTables: u16 = reader::ReadUInt16(&uncompressed_buf, &mut _cnt);
+            // cmap.numTables = ReadUInt16(cmap_buf, &mut _cnt);
+            let numTables: u16 = ReadUInt16(&uncompressed_buf, &mut _cnt);
             // if cmap.numTables == 0 { return false; }
-            cmap.setNumtables(reader::ReadUInt16(&uncompressed_buf, &mut _cnt));
+            cmap.setNumtables(ReadUInt16(&uncompressed_buf, &mut _cnt));
 
             for index in 0..numTables {
                 let mut encodingRecord: Woff2EncodingRecord = Default::default();
 
-                encodingRecord.setPlatformID(reader::ReadUInt16(&uncompressed_buf, &mut _cnt));
-                encodingRecord.setEncodingID(reader::ReadUInt16(&uncompressed_buf, &mut _cnt));
-                encodingRecord.setSubtableOffset(reader::ReadUInt32(&uncompressed_buf, &mut _cnt));
+                encodingRecord.setPlatformID(ReadUInt16(&uncompressed_buf, &mut _cnt));
+                encodingRecord.setEncodingID(ReadUInt16(&uncompressed_buf, &mut _cnt));
+                encodingRecord.setSubtableOffset(ReadUInt32(&uncompressed_buf, &mut _cnt));
 
                 if check_format & 0x01 == 1  {
                     if !encodingRecord.computeFormatType() { return false; }
-                    if !encodingRecord.checkFormatType() { return false;}
                 }
                 // let format_type: u32 = encodingRecord.getFormatType().unwrap();
 
+                // encodingRecord.
 
+                encodingRecord.subtable.setOffset(_cnt.clone() as u16);
+
+                if !encodingRecord.subtable.setFormat(ReadUInt16(&uncompressed_buf, &mut _cnt)) { return false; }
         
+                if check_format & 0x01 == 1  {
+                    if !encodingRecord.checkFormatType() { return false;}
+                }
+
+                // if !encodingRecord.subtable.setLength(ReadUInt16(&uncompressed_buf, &mut _cnt)) { return false; }
+                
+                // encodingRecord.subtable.setLanguage(ReadUInt16(&uncompressed_buf, &mut _cnt));
+
+
+
                 cmap.setEncodingRecords(encodingRecord);
             }
 
