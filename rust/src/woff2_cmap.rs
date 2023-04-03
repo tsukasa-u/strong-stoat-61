@@ -46,6 +46,45 @@ impl Woff2CampSubTable {
     pub fn getFormat(&self) -> Option<u16> {
         Some(self.format)
     }
+
+    pub fn subtableType0(&mut self) -> bool {
+        return true;
+    }
+
+    pub fn subtableType2(&mut self) -> bool {
+        return true;
+    }
+
+    pub fn subtableType4(&mut self) -> bool {
+        return true;
+    }
+
+    pub fn subtableType6(&mut self) -> bool {
+        return true;
+    }
+
+
+    pub fn subtableType8(&mut self) -> bool {
+        return true;
+    }
+
+
+    pub fn subtableType10(&mut self) -> bool {
+        return true;
+    }
+
+
+    pub fn subtableType12(&mut self) -> bool {
+        return true;
+    }
+
+    pub fn subtableType13(&mut self) -> bool {
+        return true;
+    }
+
+    pub fn subtableType14(&mut self) -> bool {
+        return true;
+    }
 }
 
 #[derive(Default)]
@@ -86,23 +125,23 @@ impl Woff2EncodingRecord {
             return false;
         } else if self.platformID == 2 {
             self.formatType = match self.encodingID {
-                0 => 1,
-                1 => 1,
-                2 => 1,
+                0 => !0,
+                1 => !0,
+                2 => !0,
                 _ => return false
             };
         } else if self.platformID == 3 {
             self.formatType = match self.encodingID {
                 0 => 1 << 4,
                 1 => 1 << 4,
-                2 => 0,
-                3 => 0,
-                4 => 0,
-                5 => 0,
-                6 => 0,
-                7 => 0,
-                8 => 0,
-                9 => 0,
+                2 => !0,
+                3 => !0,
+                4 => !0,
+                5 => !0,
+                6 => !0,
+                7 => !0,
+                8 => !0,
+                9 => !0,
                 10 => 1 << 12,
                 _ => return false
             };
@@ -121,7 +160,7 @@ impl Woff2EncodingRecord {
 
     pub fn checkFormatType(&self) -> bool {
         let format_type = self.subtable.getFormat().unwrap();
-        return self.getFormatType().unwrap() == format_type && getSubtableFormatTypeList().contains(&format_type)
+        return self.getFormatType().unwrap() & (1 << format_type) > 1 && getSubtableFormatTypeList().contains(&format_type)
     }
 }
 
@@ -145,43 +184,4 @@ impl Woff2Cmap {
     pub fn setEncodingRecords(&mut self, val: Woff2EncodingRecord) {
         self.encodingRecords.push(val);
     }
-}
-
-fn subtableType0() -> bool {
-    return true;
-}
-
-fn subtableType2() -> bool {
-    return true;
-}
-
-fn subtableType4() -> bool {
-    return true;
-}
-
-fn subtableType6() -> bool {
-    return true;
-}
-
-
-fn subtableType8() -> bool {
-    return true;
-}
-
-
-fn subtableType10() -> bool {
-    return true;
-}
-
-
-fn subtableType12() -> bool {
-    return true;
-}
-
-fn subtableType13() -> bool {
-    return true;
-}
-
-fn subtableType14() -> bool {
-    return true;
 }
