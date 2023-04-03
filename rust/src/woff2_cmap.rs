@@ -1,90 +1,12 @@
 
 #![allow(unused_variables, non_snake_case, dead_code, non_camel_case_types)]
 
+use std::rc::Rc;
+
+use crate::woff2_subtable::*;
+
 fn getSubtableFormatTypeList() -> Vec<u16> {
     return vec![0u16, 2u16, 4u16, 6u16, 8u16, 10u16, 12u16, 13u16, 14u16];
-}
-
-#[derive(Default)]
-pub struct Woff2CampSubTable {
-    format: u16,
-    offset: u16,
-    length: u16,
-    src_offset: u32,
-    src_length: u32,
-    language: u16,
-}
-
-impl Woff2CampSubTable {
-    pub fn setFormat(&mut self, val: u16) -> bool {
-        self.format = val;
-        return true;
-    }
-
-    pub fn setOffset(&mut self, val: u16) {
-        self.offset = val;
-    }
-    
-    pub fn setLength(&mut self, val: u16) -> bool {
-        self.offset = val;
-        return val > 0;
-    }
-    
-    pub fn setSrc_offset(&mut self, val: u16) {
-        self.offset = val;
-    }
-    
-    pub fn setSrc_length(&mut self, val: u16) -> bool {
-        self.offset = val;
-        return val > 0;
-    }
-
-    pub fn setLanguage(&mut self, val: u16) {
-        self.language = val;
-    } 
-
-    pub fn getFormat(&self) -> Option<u16> {
-        Some(self.format)
-    }
-
-    pub fn subtableType0(&mut self) -> bool {
-        return true;
-    }
-
-    pub fn subtableType2(&mut self) -> bool {
-        return true;
-    }
-
-    pub fn subtableType4(&mut self) -> bool {
-        return true;
-    }
-
-    pub fn subtableType6(&mut self) -> bool {
-        return true;
-    }
-
-
-    pub fn subtableType8(&mut self) -> bool {
-        return true;
-    }
-
-
-    pub fn subtableType10(&mut self) -> bool {
-        return true;
-    }
-
-
-    pub fn subtableType12(&mut self) -> bool {
-        return true;
-    }
-
-    pub fn subtableType13(&mut self) -> bool {
-        return true;
-    }
-
-    pub fn subtableType14(&mut self) -> bool {
-        return true;
-    }
 }
 
 #[derive(Default)]
@@ -92,11 +14,11 @@ pub struct Woff2EncodingRecord {
     platformID: u16,
     encodingID: u16,
     subtableOffset: u32,
-    pub subtable: Woff2CampSubTable,
+    pub subtable: Option<Box<dyn Woff2CampSubTableTrait>>,
     formatType: u16,
 }
 
-impl Woff2EncodingRecord {
+impl  Woff2EncodingRecord {
     pub fn setPlatformID(&mut self, val:u16) {
         self.platformID = val;
     }
@@ -158,8 +80,11 @@ impl Woff2EncodingRecord {
         Some(self.formatType)
     }
 
-    pub fn checkFormatType(&self) -> bool {
-        let format_type = self.subtable.getFormat().unwrap();
+    pub fn checkFormatType(&mut self) -> bool {
+        let format_type: u16 = match self.subtable {
+            Some(ref mut x) => (**x).getFormat().unwrap(),
+            None => return false,
+        };
         return self.getFormatType().unwrap() & (1 << format_type) > 1 && getSubtableFormatTypeList().contains(&format_type)
     }
 }
@@ -185,3 +110,4 @@ impl Woff2Cmap {
         self.encodingRecords.push(val);
     }
 }
+
