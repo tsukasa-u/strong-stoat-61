@@ -9,6 +9,7 @@ use rand::seq::SliceRandom;
 use crate::woff2_reader::*;
 use crate::woff2_def::*;
 use crate::woff2_cmap::*;
+use crate::woff2_subtable::*;
 
 fn getWOFF2Hedder(data: &[u8], cnt: &mut usize, header: &mut Woff2Header) -> bool {
     
@@ -228,7 +229,40 @@ fn checkLocaGlyf(tables: &Vec<Woff2Table>, collections: &Woff2Collection) -> boo
     return true;
 }
 
-fn WoffDecompress(data: &[u8], check_format: u32) -> bool {
+fn getWoff2CampSubtable(uncompressed_buf: &mut Vec<u8>, encodingRecord: &mut Woff2EncodingRecord, _cnt: usize, check_format: u32) -> bool {
+
+    let mut cnt: usize = _cnt;
+
+    let format: u16 = ReadUInt16(&uncompressed_buf, &mut cnt);
+    // encodingRecord.subtable.setFormat();
+        
+    if check_format & 0x01 == 1  {
+        if !encodingRecord.checkFormatType() { return false;}
+    }
+
+    // if !encodingRecord.subtable.setLength(ReadUInt16(&uncompressed_buf, &mut _cnt)) { return false; }
+    
+    // encodingRecord.subtable.setLanguage(ReadUInt16(&uncompressed_buf, &mut _cnt));
+
+    // let subtable: &mut Woff2CampSubTable = &mut encodingRecord.subtable;
+    encodingRecord.subtable = 
+    match Some(format) {
+        Some(0u16) => { let mut subtable: Box<Woff2CampSubTable0> = Default::default(); subtableType0(&mut subtable, &uncompressed_buf); Some(subtable)},
+        Some(2u16) => { let mut subtable: Box<Woff2CampSubTable2> = Default::default(); subtableType2(&mut subtable, &uncompressed_buf); Some(subtable)},
+        Some(4u16) => { let mut subtable: Box<Woff2CampSubTable4> = Default::default(); subtableType4(&mut subtable, &uncompressed_buf); Some(subtable)},
+        Some(6u16) => { let mut subtable: Box<Woff2CampSubTable6> = Default::default(); subtableType6(&mut subtable, &uncompressed_buf); Some(subtable)},
+        Some(8u16) => { let mut subtable: Box<Woff2CampSubTable8> = Default::default(); subtableType8(&mut subtable, &uncompressed_buf); Some(subtable)},
+        Some(10u16) => { let mut subtable: Box<Woff2CampSubTable10> = Default::default(); subtableType10(&mut subtable, &uncompressed_buf); Some(subtable)},
+        Some(12u16) => { let mut subtable: Box<Woff2CampSubTable12> = Default::default(); subtableType12(&mut subtable, &uncompressed_buf); Some(subtable)},
+        Some(13u16) => { let mut subtable: Box<Woff2CampSubTable13> = Default::default(); subtableType13(&mut subtable, &uncompressed_buf); Some(subtable)},
+        Some(14u16) => { let mut subtable: Box<Woff2CampSubTable14> = Default::default(); subtableType14(&mut subtable, &uncompressed_buf); Some(subtable)},
+        _ => return false,
+    };
+
+    return true;
+}
+
+pub fn Woff2Decompress(data: &[u8], check_format: u32) -> bool {
 
     let mut header: Woff2Header = Default::default();
     let mut cnt: usize = 0;
@@ -284,9 +318,10 @@ fn WoffDecompress(data: &[u8], check_format: u32) -> bool {
             for index in 0..numTables {
                 let mut encodingRecord: Woff2EncodingRecord = Default::default();
 
+                let tmp: u32 = _cnt as u32;
                 encodingRecord.setPlatformID(ReadUInt16(&uncompressed_buf, &mut _cnt));
                 encodingRecord.setEncodingID(ReadUInt16(&uncompressed_buf, &mut _cnt));
-                encodingRecord.setSubtableOffset(ReadUInt32(&uncompressed_buf, &mut _cnt));
+                encodingRecord.setSubtableOffset(tmp + ReadUInt32(&uncompressed_buf, &mut _cnt));
 
                 if check_format & 0x01 == 1  {
                     if !encodingRecord.computeFormatType() { return false; }
@@ -295,19 +330,7 @@ fn WoffDecompress(data: &[u8], check_format: u32) -> bool {
 
                 // encodingRecord.
 
-                encodingRecord.subtable.setOffset(_cnt.clone() as u16);
-
-                if !encodingRecord.subtable.setFormat(ReadUInt16(&uncompressed_buf, &mut _cnt)) { return false; }
-        
-                if check_format & 0x01 == 1  {
-                    if !encodingRecord.checkFormatType() { return false;}
-                }
-
-                // if !encodingRecord.subtable.setLength(ReadUInt16(&uncompressed_buf, &mut _cnt)) { return false; }
-                
-                // encodingRecord.subtable.setLanguage(ReadUInt16(&uncompressed_buf, &mut _cnt));
-
-                // match encodingRecord.subtable
+                // encodingRecord.subtable.setOffset(_cnt.clone() as u16);
 
                 cmap.setEncodingRecords(encodingRecord);
             }
