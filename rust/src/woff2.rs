@@ -231,7 +231,7 @@ fn checkLocaGlyf(tables: &Vec<Woff2Table>, collections: &Woff2Collection) -> boo
 
 fn getWoff2CampSubtable(uncompressed_buf: &mut Vec<u8>, encodingRecord: &mut Woff2EncodingRecord, _cnt: usize, check_format: u32) -> bool {
 
-    let mut cnt: usize = _cnt;
+    let mut cnt: usize = _cnt.clone();
 
     let format: u16 = ReadUInt16(&uncompressed_buf, &mut cnt);
     // encodingRecord.subtable.setFormat();
@@ -247,15 +247,15 @@ fn getWoff2CampSubtable(uncompressed_buf: &mut Vec<u8>, encodingRecord: &mut Wof
     // let subtable: &mut Woff2CampSubTable = &mut encodingRecord.subtable;
     encodingRecord.subtable = 
     match Some(format) {
-        Some(0u16) => { let mut subtable: Box<Woff2CampSubTable0> = Default::default(); subtableType0(&mut subtable, &uncompressed_buf); Some(subtable)},
-        Some(2u16) => { let mut subtable: Box<Woff2CampSubTable2> = Default::default(); subtableType2(&mut subtable, &uncompressed_buf); Some(subtable)},
-        Some(4u16) => { let mut subtable: Box<Woff2CampSubTable4> = Default::default(); subtableType4(&mut subtable, &uncompressed_buf); Some(subtable)},
-        Some(6u16) => { let mut subtable: Box<Woff2CampSubTable6> = Default::default(); subtableType6(&mut subtable, &uncompressed_buf); Some(subtable)},
-        Some(8u16) => { let mut subtable: Box<Woff2CampSubTable8> = Default::default(); subtableType8(&mut subtable, &uncompressed_buf); Some(subtable)},
-        Some(10u16) => { let mut subtable: Box<Woff2CampSubTable10> = Default::default(); subtableType10(&mut subtable, &uncompressed_buf); Some(subtable)},
-        Some(12u16) => { let mut subtable: Box<Woff2CampSubTable12> = Default::default(); subtableType12(&mut subtable, &uncompressed_buf); Some(subtable)},
-        Some(13u16) => { let mut subtable: Box<Woff2CampSubTable13> = Default::default(); subtableType13(&mut subtable, &uncompressed_buf); Some(subtable)},
-        Some(14u16) => { let mut subtable: Box<Woff2CampSubTable14> = Default::default(); subtableType14(&mut subtable, &uncompressed_buf); Some(subtable)},
+        Some(0u16) => { let mut subtable: Box<Woff2CampSubTable0> = Default::default(); subtableType0(&mut subtable, &uncompressed_buf, cnt); Some(subtable)},
+        Some(2u16) => { let mut subtable: Box<Woff2CampSubTable2> = Default::default(); subtableType2(&mut subtable, &uncompressed_buf, cnt); Some(subtable)},
+        Some(4u16) => { let mut subtable: Box<Woff2CampSubTable4> = Default::default(); subtableType4(&mut subtable, &uncompressed_buf, cnt); Some(subtable)},
+        Some(6u16) => { let mut subtable: Box<Woff2CampSubTable6> = Default::default(); subtableType6(&mut subtable, &uncompressed_buf, cnt); Some(subtable)},
+        Some(8u16) => { let mut subtable: Box<Woff2CampSubTable8> = Default::default(); subtableType8(&mut subtable, &uncompressed_buf, cnt); Some(subtable)},
+        Some(10u16) => { let mut subtable: Box<Woff2CampSubTable10> = Default::default(); subtableType10(&mut subtable, &uncompressed_buf, cnt); Some(subtable)},
+        Some(12u16) => { let mut subtable: Box<Woff2CampSubTable12> = Default::default(); subtableType12(&mut subtable, &uncompressed_buf, cnt); Some(subtable)},
+        Some(13u16) => { let mut subtable: Box<Woff2CampSubTable13> = Default::default(); subtableType13(&mut subtable, &uncompressed_buf, cnt); Some(subtable)},
+        Some(14u16) => { let mut subtable: Box<Woff2CampSubTable14> = Default::default(); subtableType14(&mut subtable, &uncompressed_buf, cnt); Some(subtable)},
         _ => return false,
     };
 
