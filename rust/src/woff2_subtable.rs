@@ -295,7 +295,7 @@ pub fn subtableType2(subtable: &mut Woff2CampSubTable2, buf: &Vec<u8>, mut cnt: 
     return true;
 }
 
-struct Woff2CampSubTable4idRangeOffset0 {
+pub struct Woff2CampSubTable4idRangeOffset0 {
     startCode: u16,
     endCode: u16,
     idDelta: u16
@@ -477,15 +477,61 @@ pub struct Woff2CampSubTable6 {
     format: u16,
     offset: u16,
     length: u16,
-    src_offset: u32,
-    src_length: u32,
+    firstCode: u16,
+    entryCount: u16,
     language: u16,
+    pub hashTable: HashMap<u16, CharMap<u16>>
+}
+
+impl Woff2CampSubTable6 {
+    pub fn setFormat(&mut self, val: u16) {
+        self.format = val;
+    }
+
+    pub fn setOffset(&mut self, val: u16) {
+        self.offset = val;
+    }
+    
+    pub fn setLength(&mut self, val: u16) -> bool {
+        self.length = val;
+        return val > 0;
+    }
+
+    pub fn setFirstCode(&mut self, val: u16) {
+        self.firstCode = val;
+    }
+    
+    pub fn setEntryCount(&mut self, val: u16) -> bool {
+        self.entryCount = val;
+        return val > 0;
+    }
+
+    pub fn setLanguage(&mut self, val: u16) {
+        self.language = val;
+    }
 }
 
 pub fn subtableType6(subtable: &mut Woff2CampSubTable6, buf: &Vec<u8>, mut cnt: usize) -> bool {
     // let mut cnt: usize = subtable.src_offset as usize + 2;
     
-    // subtable.setFormat(2u16);
+    subtable.setFormat(6u16);
+    
+    let length: u16 = ReadUInt16(buf, &mut cnt);
+    if !subtable.setLength(length) { return false; }
+    subtable.setLanguage(ReadUInt16(buf, &mut cnt));
+
+    let firstCode: u16 = ReadUInt16(buf, &mut cnt);
+    subtable.setFirstCode(firstCode);
+
+    let entryCount: u16 = ReadUInt16(buf, &mut cnt);
+    if !subtable.setEntryCount(entryCount) { return false; }
+
+    for i in 0..entryCount {
+        let character = i + firstCode;
+        let offset: u32 = cnt as u32;
+        let glyhId: u16 = ReadUInt16(buf, &mut cnt);
+        subtable.hashTable.insert(character, CharMap { offset: offset, character: character, glyhId: glyhId });
+    }
 
     return true;
 }
