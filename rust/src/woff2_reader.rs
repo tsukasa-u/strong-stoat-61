@@ -97,3 +97,7 @@ pub(crate) fn ReadUInt32(data: &[u8], cnt: &mut usize) -> u32 {
     *cnt += 4;
     return ((a1 << 32) | (a2 << 16) | (a3 << 8) | a4) as u32;
 }
+
+pub(crate) fn skip(cnt: &mut usize, val: usize) {
+    *cnt += val;
+}
