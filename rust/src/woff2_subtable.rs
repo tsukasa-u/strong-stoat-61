@@ -2,7 +2,8 @@
 #![allow(unused_variables, non_snake_case, dead_code, non_camel_case_types)]
 
 use crate::woff2_reader::*;
-use std::collections::HashMap;
+use std::{collections::HashMap, iter::Zip};
+use itertools::Itertools;
 
 pub trait Woff2CampSubTableTrait {
     // fn getSubtable(&mut self) -> bool;
@@ -223,7 +224,7 @@ impl Woff2CampSubTable2 {
 pub fn subtableType2(subtable: &mut Woff2CampSubTable2, buf: &Vec<u8>, mut cnt: usize) -> bool {
     // let mut cnt: usize = subtable.src_offset as usize + 2;
 
-    subtable.setFormat(0u16);
+    subtable.setFormat(2u16);
     
     let length: u16 = ReadUInt16(buf, &mut cnt);
     if !subtable.setLength(length) { return false; }
@@ -294,6 +295,12 @@ pub fn subtableType2(subtable: &mut Woff2CampSubTable2, buf: &Vec<u8>, mut cnt: 
     return true;
 }
 
+struct Woff2CampSubTable4idRangeOffset0 {
+    startCode: u16,
+    endCode: u16,
+    idDelta: u16
+}
+
 #[derive(Default)]
 pub struct Woff2CampSubTable4 {
     format: u16,
@@ -309,6 +316,7 @@ pub struct Woff2CampSubTable4 {
     startCode: Vec<u16>,
     idDelta: Vec<u16>,
     idRangeOffsets: Vec<u16>,
+    pub idDelta0: Vec<Woff2CampSubTable4idRangeOffset0>,
     pub hashTable: HashMap<u16, CharMap<u16>>
 }
 
@@ -353,6 +361,18 @@ impl Woff2CampSubTable4 {
     pub fn setEndCode(&mut self, val: u16) {
         self.endCode.push(val);
     }
+
+    pub fn getEndCode(&mut self, val: usize) -> Option<&u16> {
+        return self.endCode.get(val);
+    }
+
+    pub fn getEndCode_ref(&mut self) -> &Vec<u16> {
+        return &self.endCode;
+    }
+
+    pub fn checkEndCodeLast(&self) -> bool {
+        return self.endCode.get((self.segCountX2/2 - 1) as usize).unwrap_or_else(|| &0).clone() == 0xffff
+    }
     
     pub fn setReservePad(&mut self, val:u16) -> bool {
         self.reservePad = val;
@@ -362,20 +382,92 @@ impl Woff2CampSubTable4 {
     pub fn setStartCode(&mut self, val: u16) {
         self.startCode.push(val);
     }
+
+    pub fn getStartCode(&mut self, val: usize) -> Option<&u16> {
+        return self.startCode.get(val);
+    }
+
+    pub fn getStartCode_ref(&mut self) -> &Vec<u16> {
+        return &self.startCode;
+    }
+
+    pub fn getStartEndCode_IdDeltaRangeOffsets(&mut self) -> Zip<std::slice::Iter<'_, u16>, std::slice::Iter<'_, u16>> {
+        return self.startCode.iter().zip(self.endCode.iter())
+    }
+
+    pub fn checkStartCodeLast(&self) -> bool {
+        return self.startCode.get((self.segCountX2/2 - 1) as usize).unwrap_or_else(|| &0).clone() == 0xffff
+    }
     
     pub fn setIdDelta(&mut self, val: u16) {
         self.idDelta.push(val);
     }
 
+    pub fn getIdDelta(&mut self, val: usize) -> Option<&u16> {
+        return self.idDelta.get(val);
+    }
+
     pub fn setIdRangeOffsets(&mut self, val: u16) {
         self.idRangeOffsets.push(val);
+    }
+
+    pub fn getIdRangeOffsets(&mut self, val: usize) -> Option<&u16> {
+        self.idRangeOffsets.get(val)
     }
 }
 
 pub fn subtableType4(subtable: &mut Woff2CampSubTable4, buf: &Vec<u8>, mut cnt: usize) -> bool {
     // let mut cnt: usize = subtable.src_offset as usize + 2;
     
-    // subtable.setFormat(2u16);
+    subtable.setFormat(4u16);
+    
+    let length: u16 = ReadUInt16(buf, &mut cnt);
+    if !subtable.setLength(length) { return false; }
+    subtable.setLanguage(ReadUInt16(buf, &mut cnt));
+
+    let mut segCount: u16 = Read255UInt16(buf, &mut cnt);
+    if !subtable.setSegCountX2(segCount) { return false };
+    segCount /= 2;
+
+    if !subtable.setSearchRange(ReadUInt16(buf, &mut cnt)) { return false; }
+    if !subtable.setEntrySelector(ReadUInt16(buf, &mut cnt)) { return false; }
+    if !subtable.setRangeShift(ReadUInt16(buf, &mut cnt)) { return false; }
+
+    for i in 0..segCount {
+        subtable.setEndCode(ReadUInt16(buf, &mut cnt));
+    }
+    if !subtable.checkEndCodeLast() { return false; }
+
+    for i in 0..segCount {
+        subtable.setStartCode(ReadUInt16(buf, &mut cnt));
+    }
+    if !subtable.checkStartCodeLast () { return false; }
+
+    for i in 0..segCount {
+        subtable.setIdDelta(ReadUInt16(buf, &mut cnt));
+    }
+
+    let _cnt: u32 = cnt as u32; 
+    for i in 0..segCount {
+        subtable.setIdRangeOffsets(ReadUInt16(buf, &mut cnt));
+    }
+
+    for i in 0..segCount as usize {
+        let startCode: u16 = subtable.getStartCode(i).unwrap().clone();
+        let endCode: u16 = subtable.getEndCode(i).unwrap().clone();
+        let idDelta: u16 = subtable.getIdDelta(i).unwrap().clone();
+        let idRangeOffset: u16 = subtable.getIdRangeOffsets(i).unwrap().clone();
+        if idRangeOffset == 0 {
+            subtable.idDelta0.push(Woff2CampSubTable4idRangeOffset0 { startCode: startCode, endCode: endCode, idDelta: idDelta })
+        } else {
+            for j in startCode..endCode {
+                let offset: u32 = _cnt + 2*(i as u32) + (idRangeOffset + (j - startCode)*2) as u32;
+                let mut tmp: usize = offset as usize;
+                let glyhId: u16 = ReadUInt16(buf, &mut tmp);
+                subtable.hashTable.insert(j, CharMap { offset: offset, character: j, glyhId: glyhId });
+            }
+        }
+    }
 
     return true;
 }
@@ -388,6 +480,14 @@ pub struct Woff2CampSubTable6 {
     src_offset: u32,
     src_length: u32,
     language: u16,
+}
+
+pub fn subtableType6(subtable: &mut Woff2CampSubTable6, buf: &Vec<u8>, mut cnt: usize) -> bool {
+    // let mut cnt: usize = subtable.src_offset as usize + 2;
+    
+    // subtable.setFormat(2u16);
+
+    return true;
 }
 
 #[derive(Default)]
@@ -438,14 +538,6 @@ pub struct Woff2CampSubTable14 {
     src_offset: u32,
     src_length: u32,
     language: u16,
-}
-
-pub fn subtableType6(subtable: &mut Woff2CampSubTable6, buf: &Vec<u8>, mut cnt: usize) -> bool {
-    // let mut cnt: usize = subtable.src_offset as usize + 2;
-    
-    // subtable.setFormat(2u16);
-
-    return true;
 }
 
 pub fn subtableType8(subtable: &mut Woff2CampSubTable8, buf: &Vec<u8>, mut cnt: usize) -> bool {
