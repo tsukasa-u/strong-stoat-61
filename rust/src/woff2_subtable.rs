@@ -2,6 +2,7 @@
 #![allow(unused_variables, non_snake_case, dead_code, non_camel_case_types)]
 
 use crate::woff2_reader::*;
+use core::num;
 use std::{collections::HashMap, iter::Zip};
 use itertools::Itertools;
 
@@ -69,7 +70,7 @@ impl Woff2CampSubTableTrait for Woff2CampSubTable14 {
 pub struct CharMap<T> {
     offset: u32,
     character: T,
-    // bytes: u8,
+    bytes: u8,
     glyhId: T,
 }
 //----------------------------------------------
@@ -128,7 +129,7 @@ pub fn subtableType0(subtable: &mut Woff2CampSubTable0, buf: &Vec<u8>, mut cnt: 
     subtable.setSrc_length(256u16);
     
     for i in 0..256 {
-        subtable.hashTable.insert(i, CharMap { offset: cnt as u32, character: i as  u8, glyhId: buf[cnt] });
+        subtable.hashTable.insert(i, CharMap { offset: cnt as u32, character: i as  u8, glyhId: buf[cnt], bytes: 1 });
     }
 
     return true;
@@ -263,8 +264,39 @@ pub fn subtableType2(subtable: &mut Woff2CampSubTable2, buf: &Vec<u8>, mut cnt: 
         subtable.sub_headers[i] = Some(element);
     }
     
+    // for i in 0..256 {
+    //     match &subtable.sub_headers[i] {
+    //         Some(ele) => {
+    //             let offset: u32 = ele.getOffset().unwrap();
+    //             let firstCode: u16 = ele.getFirstCode().unwrap();
+    //             let entryCount: u16 = ele.getEntryCount().unwrap();
+    //             let idDelta: i16 = ele.getIdDelta().unwrap();
+    //             let idRangeOffset: u16 = ele.getIdRangeOffset().unwrap();
+                
+    //             if subtable.getKeys(i).unwrap()/8 > 0 {
+    //                 for j in 0..entryCount {
+    //                     let tmp: usize = offset as usize + idRangeOffset as usize + (j*2) as usize;
+    //                     let mut p: u16 = ((buf[tmp] as u16) << 8) | (buf[tmp + 1] as u16);
+    //                     p = if p != 0 { (p as i16 + idDelta) as u16 } else { p };
+    //                     let character: u16 = ((i as u16) << 8) | (j + firstCode);
+    //                     subtable.hashTable.insert(character, CharMap { offset: tmp as u32, character: character, glyhId: p, bytes: 2 });
+    //                 }
+    //             } else {
+    //                 for j in 0..entryCount {
+    //                     let tmp: usize = offset as usize + idRangeOffset as usize + (j*2) as usize;
+    //                     let p: u16 = ((buf[tmp] as u16) << 8) | (buf[tmp + 1] as u16);
+    //                     let character: u16 = ((i as u16) << 8) | j;
+    //                     subtable.hashTable.insert(character, CharMap { offset: tmp as u32, character: character, glyhId: p, bytes: 1 });
+    //                 }
+    //             }
+    //         },
+    //         None => return false,
+    //     };
+    
     for i in 0..256 {
-        match &subtable.sub_headers[i] {
+        let index: usize = (subtable.getKeys(i).unwrap()/8) as usize;
+        
+        match &subtable.sub_headers[index] {
             Some(ele) => {
                 let offset: u32 = ele.getOffset().unwrap();
                 let firstCode: u16 = ele.getFirstCode().unwrap();
@@ -272,24 +304,24 @@ pub fn subtableType2(subtable: &mut Woff2CampSubTable2, buf: &Vec<u8>, mut cnt: 
                 let idDelta: i16 = ele.getIdDelta().unwrap();
                 let idRangeOffset: u16 = ele.getIdRangeOffset().unwrap();
                 
-                if subtable.getKeys(i).unwrap()/8 > 0 {
+                if index > 0 {
                     for j in 0..entryCount {
                         let tmp: usize = offset as usize + idRangeOffset as usize + (j*2) as usize;
                         let mut p: u16 = ((buf[tmp] as u16) << 8) | (buf[tmp + 1] as u16);
                         p = if p != 0 { (p as i16 + idDelta) as u16 } else { p };
                         let character: u16 = ((i as u16) << 8) | (j + firstCode);
-                        subtable.hashTable.insert(character, CharMap { offset: tmp as u32, character: character, glyhId: p });
+                        subtable.hashTable.insert(character, CharMap { offset: tmp as u32, character: character, glyhId: p, bytes: 2 });
                     }
                 } else {
                     for j in 0..entryCount {
                         let tmp: usize = offset as usize + idRangeOffset as usize + (j*2) as usize;
                         let p: u16 = ((buf[tmp] as u16) << 8) | (buf[tmp + 1] as u16);
                         let character: u16 = ((i as u16) << 8) | j;
-                        subtable.hashTable.insert(character, CharMap { offset: tmp as u32, character: character, glyhId: p });
+                        subtable.hashTable.insert(character, CharMap { offset: tmp as u32, character: character, glyhId: p, bytes: 1 });
                     }
                 }
             },
-            None => (),
+            None => return false,
         };
     }
     return true;
@@ -464,7 +496,7 @@ pub fn subtableType4(subtable: &mut Woff2CampSubTable4, buf: &Vec<u8>, mut cnt: 
                 let offset: u32 = _cnt + 2*(i as u32) + (idRangeOffset + (j - startCode)*2) as u32;
                 let mut tmp: usize = offset as usize;
                 let glyhId: u16 = ReadUInt16(buf, &mut tmp);
-                subtable.hashTable.insert(j, CharMap { offset: offset, character: j, glyhId: glyhId });
+                subtable.hashTable.insert(j, CharMap { offset: offset, character: j, glyhId: glyhId, bytes: 2 });
             }
         }
     }
@@ -530,20 +562,95 @@ pub fn subtableType6(subtable: &mut Woff2CampSubTable6, buf: &Vec<u8>, mut cnt: 
         let character = i + firstCode;
         let offset: u32 = cnt as u32;
         let glyhId: u16 = ReadUInt16(buf, &mut cnt);
-        subtable.hashTable.insert(character, CharMap { offset: offset, character: character, glyhId: glyhId });
+        subtable.hashTable.insert(character, CharMap { offset: offset, character: character, glyhId: glyhId, bytes: 2 });
     }
 
     return true;
 }
 
 #[derive(Default)]
+pub struct Woff2CampSubTable8SequentialMapGroup {
+    startCharCode: u32,
+    endCharCode: u32,
+    startGlyphID: u32
+}
+
+#[derive(Default)]
 pub struct Woff2CampSubTable8 {
     format: u16,
     offset: u16,
-    length: u16,
-    src_offset: u32,
-    src_length: u32,
-    language: u16,
+    reserved: u16,
+    length: u32,
+    language: u32,
+    is32: Vec<u8>,
+    numGroups: u32,
+    pub SequentialMapGroup: Vec<Woff2CampSubTable8SequentialMapGroup>,
+    pub hashTable: HashMap<u32, CharMap<u32>>
+}
+
+impl Woff2CampSubTable8 {
+    pub fn setFormat(&mut self, val: u16) {
+        self.format = val;
+    }
+
+    pub fn setOffset(&mut self, val: u16) {
+        self.offset = val;
+    }
+    
+    pub fn setLength(&mut self, val: u32) -> bool {
+        self.length = val;
+        return val > 0;
+    }
+
+    pub fn setIs32(&mut self, val: u8) {
+        self.is32.push(val);
+    }
+
+    pub fn checkIs32(&self, val: usize) -> bool{
+        return self.is32.get(val/8).unwrap() & (1 << ( 7 - (val % 8))) > 0;
+    }
+
+    pub fn setNumGroups(&mut self, val: u32) -> bool {
+        self.numGroups = val;
+        return val > 0;
+    }
+
+    pub fn setLanguage(&mut self, val: u32) {
+        self.language = val;
+    }
+}
+
+pub fn subtableType8(subtable: &mut Woff2CampSubTable8, buf: &Vec<u8>, mut cnt: usize) -> bool {
+    
+    subtable.setFormat(8u16);
+    
+    let length: u32 = ReadUInt32(buf, &mut cnt);
+    if !subtable.setLength(length) { return false; }
+    subtable.setLanguage(ReadUInt32(buf, &mut cnt));
+
+    for i in 0..8192 {
+        subtable.setIs32(ReadUInt8(buf, &mut cnt));
+    }
+
+    let numGropus: u32 = ReadUInt32(buf, &mut cnt);
+    if !subtable.setNumGroups(numGropus) { return false; }
+
+    for i in 0..numGropus as usize {
+        let startCharCode: u32 = ReadUInt32(buf, &mut cnt);
+        let endCharCode: u32 = ReadUInt32(buf, &mut cnt);
+        let startGlyphID: u32 = ReadUInt32(buf, &mut cnt);
+        subtable.SequentialMapGroup.push(Woff2CampSubTable8SequentialMapGroup { startCharCode: startCharCode, endCharCode: endCharCode, startGlyphID: startGlyphID })
+
+        for i in startCharCode..(endCharCode + 1) {
+            let offset: usize = cnt + (startGlyphID + i - startCharCode) as usize;
+            let mut tmp = offset.clone();
+            let glyhId: u32 = ReadUInt32(buf, &mut tmp);
+            let bytes: u8 = if subtable.checkIs32(i as usize) { 4 } else { 2 };
+            subtable.hashTable.insert(i, CharMap { offset: offset as u32, character: i, glyhId: glyhId, bytes: bytes });
+        }
+    }
+    
+    return true;
 }
 
 #[derive(Default)]
@@ -584,14 +691,6 @@ pub struct Woff2CampSubTable14 {
     src_offset: u32,
     src_length: u32,
     language: u16,
-}
-
-pub fn subtableType8(subtable: &mut Woff2CampSubTable8, buf: &Vec<u8>, mut cnt: usize) -> bool {
-    // let mut cnt: usize = subtable.src_offset as usize + 2;
-    
-    // subtable.setFormat(2u16);
-
-    return true;
 }
 
 pub fn subtableType10(subtable: &mut Woff2CampSubTable10, buf: &Vec<u8>, mut cnt: usize) -> bool {
