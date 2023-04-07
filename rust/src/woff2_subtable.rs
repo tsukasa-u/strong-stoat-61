@@ -2,7 +2,6 @@
 #![allow(unused_variables, non_snake_case, dead_code, non_camel_case_types)]
 
 use crate::woff2_reader::*;
-use core::num;
 use std::{collections::HashMap, iter::Zip};
 use itertools::Itertools;
 
@@ -67,12 +66,13 @@ impl Woff2CampSubTableTrait for Woff2CampSubTable14 {
 }
 //----------------------------------------------
 #[derive(Default)]
-pub struct CharMap<T> {
+pub struct CharMap<S, T> {
     offset: u32,
-    character: T,
+    character: S,
     bytes: u8,
     glyhId: T,
 }
+
 //----------------------------------------------
 
 #[derive(Default)]
@@ -83,7 +83,7 @@ pub struct Woff2CampSubTable0 {
     src_offset: u16,
     src_length: u16,
     language: u16,
-    pub hashTable: HashMap<u16, CharMap<u8>>
+    pub hashTable: HashMap<u16, CharMap<u8, u8>>
 }
 
 impl Woff2CampSubTable0 {
@@ -178,7 +178,7 @@ pub struct Woff2CampSubTable2 {
     keys: Vec<u16>,
     language: u16,
     pub sub_headers: Vec<Option<Woff2CampSubTable2SubHeader>>,
-    pub hashTable: HashMap<u16, CharMap<u16>>
+    pub hashTable: HashMap<u16, CharMap<u16, u16>>
 }
 
 impl Woff2CampSubTable2 {
@@ -349,7 +349,7 @@ pub struct Woff2CampSubTable4 {
     idDelta: Vec<u16>,
     idRangeOffsets: Vec<u16>,
     pub idDelta0: Vec<Woff2CampSubTable4idRangeOffset0>,
-    pub hashTable: HashMap<u16, CharMap<u16>>
+    pub hashTable: HashMap<u16, CharMap<u16, u16>>
 }
 
 impl Woff2CampSubTable4 {
@@ -512,7 +512,7 @@ pub struct Woff2CampSubTable6 {
     firstCode: u16,
     entryCount: u16,
     language: u16,
-    pub hashTable: HashMap<u16, CharMap<u16>>
+    pub hashTable: HashMap<u16, CharMap<u16, u16>>
 }
 
 impl Woff2CampSubTable6 {
@@ -569,6 +569,15 @@ pub fn subtableType6(subtable: &mut Woff2CampSubTable6, buf: &Vec<u8>, mut cnt: 
 }
 
 #[derive(Default)]
+pub struct Woff2CampSubTable8CharSeq<T> {
+    offset: u32,
+    characterStart: T,
+    characterEnd: T,
+    bytes: u8,
+    glyhId: T,
+}
+
+#[derive(Default)]
 pub struct Woff2CampSubTable8SequentialMapGroup {
     startCharCode: u32,
     endCharCode: u32,
@@ -585,7 +594,8 @@ pub struct Woff2CampSubTable8 {
     is32: Vec<u8>,
     numGroups: u32,
     pub SequentialMapGroup: Vec<Woff2CampSubTable8SequentialMapGroup>,
-    pub hashTable: HashMap<u32, CharMap<u32>>
+    pub CharSequence: Vec<Woff2CampSubTable8CharSeq<u32>>,
+    pub hashTable: HashMap<u32, CharMap<u32, u32>>
 }
 
 impl Woff2CampSubTable8 {
@@ -638,18 +648,20 @@ pub fn subtableType8(subtable: &mut Woff2CampSubTable8, buf: &Vec<u8>, mut cnt: 
     for i in 0..numGropus as usize {
         let startCharCode: u32 = ReadUInt32(buf, &mut cnt);
         let endCharCode: u32 = ReadUInt32(buf, &mut cnt);
+        let offset: usize = cnt.clone();
         let startGlyphID: u32 = ReadUInt32(buf, &mut cnt);
-        subtable.SequentialMapGroup.push(Woff2CampSubTable8SequentialMapGroup { startCharCode: startCharCode, endCharCode: endCharCode, startGlyphID: startGlyphID })
+        subtable.SequentialMapGroup.push(Woff2CampSubTable8SequentialMapGroup { startCharCode: startCharCode, endCharCode: endCharCode, startGlyphID: startGlyphID });
 
-        for i in startCharCode..(endCharCode + 1) {
-            let offset: usize = cnt + (startGlyphID + i - startCharCode) as usize;
-            let mut tmp = offset.clone();
-            let glyhId: u32 = ReadUInt32(buf, &mut tmp);
-            let bytes: u8 = if subtable.checkIs32(i as usize) { 4 } else { 2 };
-            subtable.hashTable.insert(i, CharMap { offset: offset as u32, character: i, glyhId: glyhId, bytes: bytes });
-        }
+        // for i in startCharCode..(endCharCode + 1) {
+            // let offset: usize = cnt + (startGlyphID + i - startCharCode) as usize;
+            // let mut tmp = offset.clone();
+            // let glyhId: u32 = ReadUInt32(buf, &mut tmp);
+            // let bytes: u8 = if subtable.checkIs32(i as usize) { 4 } else { 2 };
+            subtable.CharSequence.push(Woff2CampSubTable8CharSeq { offset: offset as u32, characterStart: startCharCode, characterEnd: endCharCode, bytes: 6, glyhId: startGlyphID });
+            // subtable.hashTable.insert(i, CharMap { offset: offset as u32, character: i, glyhId: startGlyphID, bytes: bytes });
+        // }
     }
-    
+
     return true;
 }
 
@@ -657,10 +669,72 @@ pub fn subtableType8(subtable: &mut Woff2CampSubTable8, buf: &Vec<u8>, mut cnt: 
 pub struct Woff2CampSubTable10 {
     format: u16,
     offset: u16,
-    length: u16,
-    src_offset: u32,
-    src_length: u32,
-    language: u16,
+    length: u32,
+    reserved: u16,
+    startCharCode: u32,
+    numChars: u32,
+    language: u32,
+    pub hashTable: HashMap<u32, CharMap<u32, u16>>
+}
+
+impl Woff2CampSubTable10 {
+    pub fn setFormat(&mut self, val: u16) {
+        self.format = val;
+    }
+
+    pub fn setOffset(&mut self, val: u16) {
+        self.offset = val;
+    }
+    
+    pub fn setReserved(&mut self, val: u16) -> bool {
+        self.reserved = val;
+        return val == 0;
+    }
+    
+    pub fn setLength(&mut self, val: u32) -> bool {
+        self.length = val;
+        return val > 0;
+    }
+
+    pub fn setStartCharCode(&mut self, val: u32) {
+        self.startCharCode = val;
+    }
+    
+    pub fn setNumChars(&mut self, val: u32) -> bool {
+        self.numChars = val;
+        return val > 0;
+    }
+
+    pub fn setLanguage(&mut self, val: u32) {
+        self.language = val;
+    }
+}
+
+pub fn subtableType10(subtable: &mut Woff2CampSubTable10, buf: &Vec<u8>, mut cnt: usize) -> bool {
+    // let mut cnt: usize = subtable.src_offset as usize + 2;
+    
+    subtable.setFormat(10u16);
+
+    if !subtable.setReserved(ReadUInt16(buf, &mut cnt)) { return false; }
+    
+    let length: u32 = ReadUInt32(buf, &mut cnt);
+    if !subtable.setLength(length) { return false; }
+    subtable.setLanguage(ReadUInt32(buf, &mut cnt));
+
+    let startCharCode: u32 = ReadUInt32(buf, &mut cnt);
+    subtable.setStartCharCode(startCharCode	);
+
+    let numChars: u32 = ReadUInt32(buf, &mut cnt);
+    if !subtable.setNumChars(numChars) { return false; }
+
+    for i in 0..numChars {
+        let character: u32 = i + startCharCode;
+        let offset: u32 = cnt as u32;
+        let glyhId: u16 = ReadUInt16(buf, &mut cnt);
+        subtable.hashTable.insert(character, CharMap { offset: offset, character: character, glyhId: glyhId, bytes: 4 });
+    }
+
+    return true;
 }
 
 #[derive(Default)]
@@ -691,14 +765,6 @@ pub struct Woff2CampSubTable14 {
     src_offset: u32,
     src_length: u32,
     language: u16,
-}
-
-pub fn subtableType10(subtable: &mut Woff2CampSubTable10, buf: &Vec<u8>, mut cnt: usize) -> bool {
-    // let mut cnt: usize = subtable.src_offset as usize + 2;
-    
-    // subtable.setFormat(2u16);
-
-    return true;
 }
 
 pub fn subtableType12(subtable: &mut Woff2CampSubTable12, buf: &Vec<u8>, mut cnt: usize) -> bool {
