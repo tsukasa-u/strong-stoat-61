@@ -3,7 +3,6 @@
 
 use crate::woff2_reader::*;
 use std::{collections::HashMap, iter::Zip};
-use itertools::Itertools;
 
 pub trait Woff2CampSubTableTrait {
     // fn getSubtable(&mut self) -> bool;
@@ -916,7 +915,7 @@ pub struct Woff2CampSubTable14UnicodeRangeRecord {
 #[derive(Default)]
 pub struct Woff2CampSubTable14DefaultUVSTable {
     numUnicodeValueRanges: u32,
-    range: Vec<Woff2CampSubTable14UnicodeRangeRecord>,
+    pub range: Vec<Woff2CampSubTable14UnicodeRangeRecord>,
 }
 
 #[derive(Default)]
@@ -928,14 +927,16 @@ pub struct Woff2CampSubTable14UVSMappingRecord {
 #[derive(Default)]
 pub struct Woff2CampSubTable14NonDefaultUVSTable {
     numUVSMappings: u32,
-    uvsMappings: Vec<Woff2CampSubTable14UVSMappingRecord>,
+    pub uvsMappings: Vec<Woff2CampSubTable14UVSMappingRecord>,
 }
 
 #[derive(Default)]
 pub struct Woff2CampSubTable14VariationSelectorRecord {
     varSelector: u32,
     defaultUVSOffset: u32,
+    defaultUVS: Woff2CampSubTable14DefaultUVSTable,
     nonDefaultUVSOffset: u32,
+    nonDefaultUVS: Woff2CampSubTable14NonDefaultUVSTable
 }
 
 #[derive(Default)]
@@ -969,6 +970,7 @@ impl Woff2CampSubTable14 {
 
 pub fn subtableType14(subtable: &mut Woff2CampSubTable14, buf: &Vec<u8>, mut cnt: usize) -> bool {
     // let mut cnt: usize = subtable.src_offset as usize + 2;
+    let tmp: u32 = (cnt.clone() - 2) as u32;
     
     subtable.setFormat(14u16);
     
@@ -979,6 +981,7 @@ pub fn subtableType14(subtable: &mut Woff2CampSubTable14, buf: &Vec<u8>, mut cnt
     if !subtable.setNumVarSelectorRecords(numVarSelectorRecords) { return false; }
 
     for i in 0..numVarSelectorRecords {
+
         let mut varSelector: u32 = ReadUInt8(buf, &mut cnt) as u32;
         varSelector = (varSelector << 8) | ReadUInt8(buf, &mut cnt) as u32;
         varSelector = (varSelector << 8) | ReadUInt8(buf, &mut cnt) as u32;
@@ -986,7 +989,45 @@ pub fn subtableType14(subtable: &mut Woff2CampSubTable14, buf: &Vec<u8>, mut cnt
         let defaultUVSOffset: u32 = ReadUInt8(buf, &mut cnt) as u32;
         let nonDefaultUVSOffset: u32 = ReadUInt8(buf, &mut cnt) as u32;
 
-        subtable.varSelectors.push(Woff2CampSubTable14VariationSelectorRecord{ varSelector: varSelector, defaultUVSOffset: defaultUVSOffset, nonDefaultUVSOffset: nonDefaultUVSOffset });
+        let mut numUnicodeValueRanges: u32 = 0;
+        let mut defaultUVS: Vec<Woff2CampSubTable14UnicodeRangeRecord> = Vec::new();
+        if defaultUVSOffset > 0 {
+            let mut _cnt: usize = (tmp + defaultUVSOffset) as usize;
+            numUnicodeValueRanges = ReadUInt32(buf, &mut _cnt);
+
+            for j in 0..numUnicodeValueRanges {
+                let mut startUnicodeValue: u32 = ReadUInt8(buf, &mut _cnt) as u32;
+                startUnicodeValue = (startUnicodeValue << 8) | ReadUInt8(buf, &mut _cnt) as u32;
+                startUnicodeValue = (startUnicodeValue << 8) | ReadUInt8(buf, &mut _cnt) as u32;
+
+                let additionalCount: u8 = ReadUInt8(buf, &mut _cnt);
+
+                if startUnicodeValue + additionalCount as u32 > 0xffffff { return false; }
+
+                defaultUVS.push(Woff2CampSubTable14UnicodeRangeRecord{ startUnicodeValue: startUnicodeValue, additionalCount: additionalCount });
+            }
+        }
+        let defaultUVSTable: Woff2CampSubTable14DefaultUVSTable = Woff2CampSubTable14DefaultUVSTable{ numUnicodeValueRanges: numUnicodeValueRanges, range: defaultUVS };
+
+        let mut numUVSMappings: u32 = 0;
+        let mut nonDefaultUVS: Vec<Woff2CampSubTable14UVSMappingRecord> = Vec::new();
+        if nonDefaultUVSOffset > 0 {
+            let mut _cnt: usize = (tmp + nonDefaultUVSOffset) as usize;
+            numUVSMappings = ReadUInt32(buf, &mut _cnt);
+
+            for j in 0..numUVSMappings {
+                let mut unicodeValue: u32 = ReadUInt8(buf, &mut _cnt) as u32;
+                unicodeValue = (unicodeValue << 8) | ReadUInt8(buf, &mut _cnt) as u32;
+                unicodeValue = (unicodeValue << 8) | ReadUInt8(buf, &mut _cnt) as u32;
+
+                let glyphID: u16 = ReadUInt16(buf, &mut _cnt);
+
+                nonDefaultUVS.push(Woff2CampSubTable14UVSMappingRecord{ unicodeValue: unicodeValue, glyphID: glyphID });
+            }
+        }
+        let nonDefaultUVSTable: Woff2CampSubTable14NonDefaultUVSTable = Woff2CampSubTable14NonDefaultUVSTable{ numUVSMappings: numUVSMappings, uvsMappings: nonDefaultUVS };
+
+        subtable.varSelectors.push(Woff2CampSubTable14VariationSelectorRecord{ varSelector: varSelector, defaultUVSOffset: defaultUVSOffset, nonDefaultUVSOffset: nonDefaultUVSOffset, defaultUVS: defaultUVSTable, nonDefaultUVS: nonDefaultUVSTable });
     }
 
     return true;
