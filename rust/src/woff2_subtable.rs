@@ -908,19 +908,86 @@ pub fn subtableType13(subtable: &mut Woff2CampSubTable12, buf: &Vec<u8>, mut cnt
 }
 
 #[derive(Default)]
+pub struct Woff2CampSubTable14UnicodeRangeRecord {
+    startUnicodeValue: u32,
+    additionalCount: u8,
+}
+
+#[derive(Default)]
+pub struct Woff2CampSubTable14DefaultUVSTable {
+    numUnicodeValueRanges: u32,
+    range: Vec<Woff2CampSubTable14UnicodeRangeRecord>,
+}
+
+#[derive(Default)]
+pub struct Woff2CampSubTable14UVSMappingRecord {
+    unicodeValue: u32,
+    glyphID	: u16,
+}
+
+#[derive(Default)]
+pub struct Woff2CampSubTable14NonDefaultUVSTable {
+    numUVSMappings: u32,
+    uvsMappings: Vec<Woff2CampSubTable14UVSMappingRecord>,
+}
+
+#[derive(Default)]
+pub struct Woff2CampSubTable14VariationSelectorRecord {
+    varSelector: u32,
+    defaultUVSOffset: u32,
+    nonDefaultUVSOffset: u32,
+}
+
+#[derive(Default)]
 pub struct Woff2CampSubTable14 {
     format: u16,
     offset: u16,
-    length: u16,
-    src_offset: u32,
-    src_length: u32,
-    language: u16,
+    length: u32,
+    numVarSelectorRecords: u32,
+    pub varSelectors: Vec<Woff2CampSubTable14VariationSelectorRecord>
+}
+
+impl Woff2CampSubTable14 {
+    pub fn setFormat(&mut self, val: u16) {
+        self.format = val;
+    }
+
+    pub fn setOffset(&mut self, val: u16) {
+        self.offset = val;
+    }
+    
+    pub fn setLength(&mut self, val: u32) -> bool {
+        self.length = val;
+        return val > 0;
+    }
+    
+    pub fn setNumVarSelectorRecords(&mut self, val: u32) -> bool {
+        self.numVarSelectorRecords = val;
+        return val > 0;
+    }
 }
 
 pub fn subtableType14(subtable: &mut Woff2CampSubTable14, buf: &Vec<u8>, mut cnt: usize) -> bool {
     // let mut cnt: usize = subtable.src_offset as usize + 2;
     
-    // subtable.setFormat(2u16);
+    subtable.setFormat(14u16);
+    
+    let length: u32 = ReadUInt32(buf, &mut cnt);
+    if !subtable.setLength(length) { return false; }
+
+    let numVarSelectorRecords: u32 = ReadUInt32(buf, &mut cnt);
+    if !subtable.setNumVarSelectorRecords(numVarSelectorRecords) { return false; }
+
+    for i in 0..numVarSelectorRecords {
+        let mut varSelector: u32 = ReadUInt8(buf, &mut cnt) as u32;
+        varSelector = (varSelector << 8) | ReadUInt8(buf, &mut cnt) as u32;
+        varSelector = (varSelector << 8) | ReadUInt8(buf, &mut cnt) as u32;
+
+        let defaultUVSOffset: u32 = ReadUInt8(buf, &mut cnt) as u32;
+        let nonDefaultUVSOffset: u32 = ReadUInt8(buf, &mut cnt) as u32;
+
+        subtable.varSelectors.push(Woff2CampSubTable14VariationSelectorRecord{ varSelector: varSelector, defaultUVSOffset: defaultUVSOffset, nonDefaultUVSOffset: nonDefaultUVSOffset });
+    }
 
     return true;
 }
