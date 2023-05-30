@@ -879,7 +879,7 @@ impl Woff2CampSubTable13 {
     }
 }
 
-pub fn subtableType13(subtable: &mut Woff2CampSubTable12, buf: &Vec<u8>, mut cnt: usize) -> bool {
+pub fn subtableType13(subtable: &mut Woff2CampSubTable13, buf: &Vec<u8>, mut cnt: usize) -> bool {
     // let mut cnt: usize = subtable.src_offset as usize + 2;
     
     subtable.setFormat(12u16);
