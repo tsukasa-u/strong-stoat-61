@@ -5,6 +5,7 @@ mod woff2;
 mod woff2_def;
 mod woff2_cmap;
 mod woff2_subtable;
+mod woff2_shuffle;
 
 fn main() {
     let mut data:[u8; 1] = Default::default();
