@@ -8,11 +8,17 @@ pub trait Woff2CampSubTableTrait {
     // fn getSubtable(&mut self) -> bool;
     fn getFormat(&mut self) -> Option<u16>;
     // fn setFormat(&mut self, val: u16);
+    // fn into(self) -> Self;
+    fn shuffle(&mut self) -> bool;
 }
 
 impl Woff2CampSubTableTrait for Woff2CampSubTable0 {
     fn getFormat(self: &mut Woff2CampSubTable0) -> Option<u16> {
         Some(self.format)
+    }
+
+    fn shuffle(&mut self) -> bool {
+        todo!()
     }
 }
 
@@ -20,11 +26,19 @@ impl Woff2CampSubTableTrait for Woff2CampSubTable2 {
     fn getFormat(self: &mut Woff2CampSubTable2) -> Option<u16> {
         Some(self.format)
     }
+
+    fn shuffle(&mut self) -> bool {
+        todo!()
+    }
 }
 
 impl Woff2CampSubTableTrait for Woff2CampSubTable4 {
     fn getFormat(self: &mut Woff2CampSubTable4) -> Option<u16> {
         Some(self.format)
+    }
+
+    fn shuffle(&mut self) -> bool {
+        todo!()
     }
 }
 
@@ -32,11 +46,19 @@ impl Woff2CampSubTableTrait for Woff2CampSubTable6 {
     fn getFormat(self: &mut Woff2CampSubTable6) -> Option<u16> {
         Some(self.format)
     }
+
+    fn shuffle(&mut self) -> bool {
+        todo!()
+    }
 }
 
 impl Woff2CampSubTableTrait for Woff2CampSubTable8 {
     fn getFormat(self: &mut Woff2CampSubTable8) -> Option<u16> {
         Some(self.format)
+    }
+
+    fn shuffle(&mut self) -> bool {
+        todo!()
     }
 }
 
@@ -44,11 +66,19 @@ impl Woff2CampSubTableTrait for Woff2CampSubTable10 {
     fn getFormat(self: &mut Woff2CampSubTable10) -> Option<u16> {
         Some(self.format)
     }
+
+    fn shuffle(&mut self) -> bool {
+        todo!()
+    }
 }
 
 impl Woff2CampSubTableTrait for Woff2CampSubTable12 {
     fn getFormat(self: &mut Woff2CampSubTable12) -> Option<u16> {
         Some(self.format)
+    }
+
+    fn shuffle(&mut self) -> bool {
+        todo!()
     }
 }
 
@@ -56,11 +86,19 @@ impl Woff2CampSubTableTrait for Woff2CampSubTable13 {
     fn getFormat(self: &mut Woff2CampSubTable13) -> Option<u16> {
         Some(self.format)
     }
+
+    fn shuffle(&mut self) -> bool {
+        todo!()
+    }
 }
 
 impl Woff2CampSubTableTrait for Woff2CampSubTable14 {
     fn getFormat(self: &mut Woff2CampSubTable14) -> Option<u16> {
         Some(self.format)
+    }
+
+    fn shuffle(&mut self) -> bool {
+        todo!()
     }
 }
 //----------------------------------------------
