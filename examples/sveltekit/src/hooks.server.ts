@@ -22,6 +22,7 @@ export const handle: Handle = async ({ event, resolve }) => {
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.includes("text/html")) return response;
 
+  const source = await response.text();
   const pm = await obfuscator.getRotatingMapping(source);
   const { encoded: preArr, indices: preIdx } = preEncodeShuffled(
     Array.from({ length: 100 }, (_, i) => String(i)),
@@ -31,8 +32,6 @@ export const handle: Handle = async ({ event, resolve }) => {
 
   const ip = (event.request.headers.get("x-forwarded-for") ?? "").split(",")[0].trim();
   const ua = event.request.headers.get("user-agent") ?? "";
-
-  const source = await response.text();
   let html = await obfuscator.serveWithMapping(source, SELECTORS, pm, {
     pageKey: pathname,
     clientFingerprint: `${ip}|${ua}`,
@@ -42,5 +41,6 @@ export const handle: Handle = async ({ event, resolve }) => {
 
   const headers = new Headers(response.headers);
   headers.delete("content-length");
+  headers.set("cache-control", "no-store");
   return new Response(html, { status: response.status, headers });
 };
