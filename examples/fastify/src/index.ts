@@ -73,6 +73,7 @@ app.get("/", async (request, reply) => {
   });
 
   reply.header("content-type", "text/html; charset=utf-8");
+  reply.header("cache-control", "no-store");
   reply.send(html);
 });
 

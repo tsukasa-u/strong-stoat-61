@@ -49,7 +49,7 @@ app.get("/", async (c) => {
     sendClientMapping: false,
   });
   html = html.replace("</body>", `${preScript}</body>`);
-  return c.html(html);
+  return c.html(html, 200, { "cache-control": "no-store" });
 });
 
 serve({

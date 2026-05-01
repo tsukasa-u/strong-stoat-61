@@ -59,7 +59,7 @@ async function baseHandler(req: Request): Promise<Response> {
     sendClientMapping: false,
   });
   html = html.replace("</body>", `${preScript}</body>`);
-  return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
+  return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
 }
 
 const handler = async (req: Request): Promise<Response> => {

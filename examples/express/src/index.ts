@@ -74,6 +74,7 @@ app.get("/", async (req, res) => {
   });
 
   res.setHeader("content-type", "text/html; charset=utf-8");
+  res.setHeader("cache-control", "no-store");
   res.send(html);
 });
 
