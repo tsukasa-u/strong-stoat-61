@@ -33,6 +33,8 @@ it("withFetchObfuscation injects obfuscation into html responses", async () => {
   expect(html).toContain("@font-face");
   expect(html).toContain("_obf/font/");
   expect(html).toContain("MutationObserver");
+  // Obfuscated HTML must never be cached — the embedded font ticket is one-time use with a 5s TTL.
+  expect(res.headers.get("cache-control")).toBe("no-store");
 });
 
 it("withFetchObfuscation does not touch non-html responses", async () => {
@@ -97,6 +99,7 @@ it("withSvelteKitHandleObfuscation wraps handle and preserves font endpoint", as
   const htmlRes = await handle(htmlEvent);
   const text = await htmlRes.text();
   expect(text).toContain("@font-face");
+  expect(htmlRes.headers.get("cache-control")).toBe("no-store");
 
   const fontHit = await handle({
     event: {

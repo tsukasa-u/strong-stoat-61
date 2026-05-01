@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { FontObfuscator } from "../lib/index.ts";
+import { FontObfuscator, encodeText, preEncodeShuffled } from "../lib/index.ts";
 
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
@@ -57,6 +57,17 @@ it("maybeHandleFontRequest returns 404 for invalid token path", async () => {
   const req = new Request("http://localhost:8000/_obf/font/not-a-token");
   const res = await obf.maybeHandleFontRequest(req);
   expect(res?.status).toBe(404);
+});
+
+it("maybeHandleFontRequest rejects non-GET/HEAD methods", async () => {
+  const obf = new FontObfuscator({
+    fontUrl: "https://example.com/font.otf",
+  });
+
+  const req = new Request("http://localhost:8000/_obf/font/not-a-token", { method: "POST" });
+  const res = await obf.maybeHandleFontRequest(req);
+  expect(res?.status).toBe(405);
+  expect(res?.headers.get("allow")).toBe("GET, HEAD");
 });
 
 it("obfuscateHtml keeps html unchanged when selectors are empty", async () => {
@@ -125,6 +136,19 @@ it("obfuscateHtml rejects unsafe selectors", async () => {
   ).rejects.toThrow(/unsafe selector/);
 });
 
+it("obfuscateHtml rejects unsupported complex selectors", async () => {
+  const obf = new FontObfuscator({
+    fontUrl:
+      "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+  });
+
+  await expect(
+    obf.obfuscateHtml("<html><head></head><body><p class='a'>x</p></body></html>", {
+      selectors: [".a .b"],
+    }),
+  ).rejects.toThrow(/unsupported selector/);
+});
+
 it("obfuscateHtml emits strong 64-hex signature in font URL", async () => {
   const obf = new FontObfuscator({
     fontUrl:
@@ -159,3 +183,80 @@ it("devMode option accepts boolean flag", async () => {
   expect(out1).toBe(html);
   expect(out2).toBe(html);
 });
+
+it("getRotatingMapping(hintHtml) includes kanji found in hint html", async () => {
+  const obf = new FontObfuscator({
+    fontUrl:
+      "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+  });
+
+  const hintHtml = "<html><head></head><body><p>このテキストは難読化されます</p></body></html>";
+  const pm = await obf.getRotatingMapping(hintHtml);
+
+  expect(pm.mapping["難"]).toBeDefined();
+  expect(pm.mapping["読"]).toBeDefined();
+  expect(pm.mapping["化"]).toBeDefined();
+});
+
+it("preEncodeShuffled keeps deterministic lookup via indices", async () => {
+  const obf = new FontObfuscator({
+    fontUrl:
+      "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+  });
+
+  const pm = await obf.precomputeMapping("<html><body><p>0123456789</p></body></html>");
+  const values = Array.from({ length: 100 }, (_, i) => String(i));
+  const { encoded, indices } = preEncodeShuffled(values, pm.mapping);
+
+  expect(encoded).toHaveLength(values.length);
+  expect(indices).toHaveLength(values.length);
+
+  const indexSet = new Set(indices);
+  expect(indexSet.size).toBe(values.length);
+  expect(Math.min(...indices)).toBe(0);
+  expect(Math.max(...indices)).toBe(values.length - 1);
+
+  for (let i = 0; i < values.length; i++) {
+    expect(encoded[indices[i]]).toBe(encodeText(values[i], pm.mapping));
+  }
+});
+
+it("obfuscateSelectorScopeHtml does not corrupt text after void elements with target class", async () => {
+  // Regression test for void element stack corruption bug:
+  // <img class="obf-target"> should NOT push onto the stack, so sibling text
+  // in the same parent element must NOT be obfuscated.
+  const obf = new FontObfuscator({
+    fontUrl:
+      "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+  });
+
+  const html = `<html><head></head><body>
+<div>
+  <img class="obf-target" src="logo.png">
+  <p id="safe">This text must NOT be obfuscated</p>
+</div>
+</body></html>`;
+
+  const out = await obf.obfuscateHtml(html, { selectors: [".obf-target"] });
+  // The <p id="safe"> text should pass through unchanged because <img> is a void element
+  expect(out).toContain("This text must NOT be obfuscated");
+});
+
+it("FontObfuscator constructor rejects invalid fontRoutePrefix", () => {
+  expect(() => new FontObfuscator({
+    fontUrl: "https://example.com/font.otf",
+    fontRoutePrefix: '/_obf/font"; } body { color: red; } @font-face { src: url("',
+  })).toThrow(/fontRoutePrefix/);
+
+  expect(() => new FontObfuscator({
+    fontUrl: "https://example.com/font.otf",
+    fontRoutePrefix: "/_obf/font?evil=true",
+  })).toThrow(/fontRoutePrefix/);
+
+  // Valid prefix should not throw
+  expect(() => new FontObfuscator({
+    fontUrl: "https://example.com/font.otf",
+    fontRoutePrefix: "/_obf/font",
+  })).not.toThrow();
+});
+
