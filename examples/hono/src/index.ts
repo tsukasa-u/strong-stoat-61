@@ -33,7 +33,7 @@ app.get("/_obf/font/:token", async (c) => {
 });
 
 app.get("/", async (c) => {
-  const pm = await obfuscator.getRotatingMapping();
+  const pm = await obfuscator.getRotatingMapping(BASE_HTML);
   const { encoded: preArr, indices: preIdx } = preEncodeShuffled(
     Array.from({ length: 100 }, (_, i) => String(i)),
     pm.mapping,

@@ -17,7 +17,7 @@ export default defineNitroPlugin((nitroApp) => {
       "";
     if (!String(contentType).toLowerCase().includes("text/html")) return;
 
-    const pm = await obfuscator.getRotatingMapping();
+  const pm = await obfuscator.getRotatingMapping(response.body);
     const ip = (event.headers.get?.("x-forwarded-for") ?? "").split(",")[0].trim();
     const ua = event.headers.get?.("user-agent") ?? "";
 

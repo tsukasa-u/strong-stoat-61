@@ -27,23 +27,26 @@ const BASE_HTML = `<!doctype html>
 </body>
 </html>`;
 
-let _rotatingEntry: { page: PrecomputedPage; createdAt: number } | null = null;
+let _rotatingEntryPromise: Promise<PrecomputedPage> | null = null;
+let _rotatingEntryCreatedAt = 0;
 const ROTATION_MS = 5 * 60 * 1000;
 
-async function getPage(): Promise<PrecomputedPage> {
+function getPage(): Promise<PrecomputedPage> {
   const now = Date.now();
-  if (!_rotatingEntry || now - _rotatingEntry.createdAt >= ROTATION_MS) {
-    const page = await obfuscator.precomputeHtml(BASE_HTML, [".secret"]);
-    const { encoded: preArr, indices: preIdx } = preEncodeShuffled(
-      Array.from({ length: 100 }, (_, i) => String(i)),
-      page.mapping,
-    );
-    page.puaHtml = page.puaHtml
-      .replace('var _pre=[]', `var _pre=${JSON.stringify(preArr)}`)
-      .replace('_preIdx=[]', `_preIdx=${JSON.stringify(preIdx)}`);
-    _rotatingEntry = { page, createdAt: now };
+  if (!_rotatingEntryPromise || now - _rotatingEntryCreatedAt >= ROTATION_MS) {
+    _rotatingEntryCreatedAt = now;
+    _rotatingEntryPromise = obfuscator.precomputeHtml(BASE_HTML, [".secret"]).then((page) => {
+      const { encoded: preArr, indices: preIdx } = preEncodeShuffled(
+        Array.from({ length: 100 }, (_, i) => String(i)),
+        page.mapping,
+      );
+      page.puaHtml = page.puaHtml
+        .replace('var _pre=[]', `var _pre=${JSON.stringify(preArr)}`)
+        .replace('_preIdx=[]', `_preIdx=${JSON.stringify(preIdx)}`);
+      return page;
+    });
   }
-  return _rotatingEntry.page;
+  return _rotatingEntryPromise;
 }
 
 app.get("/_obf/font/:token", async (request, reply) => {

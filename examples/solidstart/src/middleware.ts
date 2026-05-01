@@ -9,9 +9,6 @@ const obfuscator = new FontObfuscator({
 
 const SELECTORS = [".secret"];
 
-// Kick off precomputation at module load (server startup).
-const _mapping: Promise<PrecomputedMapping> = obfuscator.precomputeMapping();
-
 async function readStream(stream: ReadableStream<Uint8Array>): Promise<string> {
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
@@ -54,8 +51,8 @@ export default createMiddleware({
       }
       if (!html.includes("<html")) return;
 
-      const pm = await obfuscator.getRotatingMapping();
-      const ip = (event.request.headers.get("x-forwarded-for") ?? "").split(",")[0].trim();
+    const pm = await obfuscator.getRotatingMapping(html);
+    const ip = (event.request.headers.get("x-forwarded-for") ?? "").split(",")[0].trim();
       const ua = event.request.headers.get("user-agent") ?? "";
 
       let result = await obfuscator.serveWithMapping(html, SELECTORS, pm, {

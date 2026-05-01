@@ -22,7 +22,7 @@ export const handle: Handle = async ({ event, resolve }) => {
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.includes("text/html")) return response;
 
-  const pm = await obfuscator.getRotatingMapping();
+  const pm = await obfuscator.getRotatingMapping(source);
   const { encoded: preArr, indices: preIdx } = preEncodeShuffled(
     Array.from({ length: 100 }, (_, i) => String(i)),
     pm.mapping,

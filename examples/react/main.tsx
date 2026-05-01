@@ -42,7 +42,8 @@ function App() {
 }
 
 async function baseHandler(req: Request): Promise<Response> {
-  const pm = await obfuscator.getRotatingMapping();
+  const rawHtml = "<!doctype html>" + renderToStaticMarkup(<App />);
+  const pm = await obfuscator.getRotatingMapping(rawHtml);
   const { encoded: preArr, indices: preIdx } = preEncodeShuffled(
     Array.from({ length: 100 }, (_, i) => String(i)),
     pm.mapping,
@@ -52,7 +53,6 @@ async function baseHandler(req: Request): Promise<Response> {
   const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim();
   const ua = req.headers.get("user-agent") ?? "";
 
-  const rawHtml = "<!doctype html>" + renderToStaticMarkup(<App />);
   let html = await obfuscator.serveWithMapping(rawHtml, SELECTORS, pm, {
     pageKey: new URL(req.url).pathname,
     clientFingerprint: `${ip}|${ua}`,

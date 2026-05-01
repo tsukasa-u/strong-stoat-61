@@ -1,11 +1,5 @@
 import { getRequestURL, setResponseHeader } from 'h3';
-import { FontObfuscator } from '../../../../lib/index.ts';
-
-const obfuscator = new FontObfuscator({
-  fontUrl:
-    'https://raw.githubusercontent.com/google/fonts/main/ofl/notosansjp/NotoSansJP%5Bwght%5D.ttf',
-  fontRoutePrefix: '/_obf/font'
-});
+import { obfuscator } from '../utils/obfuscator.ts';
 
 export default defineEventHandler(async (event) => {
   const request = new Request(getRequestURL(event).toString(), {
