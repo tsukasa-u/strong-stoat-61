@@ -1222,4 +1222,12 @@ async function handler(req: Request): Promise<Response> {
   });
 }
 
-Deno.serve({ port: 8000 }, handler);
+type DenoServe = (options: { port: number }, handler: (req: Request) => Response | Promise<Response>) => void;
+
+const denoServe = (globalThis as { Deno?: { serve?: DenoServe } }).Deno?.serve;
+
+if (!denoServe) {
+  throw new Error("Deno runtime is required. Run with: deno run --allow-net main.ts");
+}
+
+denoServe({ port: 8000 }, handler);
