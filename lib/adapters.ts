@@ -40,6 +40,7 @@ export async function obfuscateHtmlResponse(
 
   const headers = new Headers(response.headers);
   headers.delete("content-length");
+  headers.set("cache-control", "no-store");
   return new Response(html, {
     status: response.status,
     statusText: response.statusText,
