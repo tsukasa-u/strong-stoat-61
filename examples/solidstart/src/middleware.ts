@@ -1,11 +1,6 @@
 import { createMiddleware } from "@solidjs/start/middleware";
-import { FontObfuscator, preEncodeShuffled } from "../../../lib/index.ts";
-
-const obfuscator = new FontObfuscator({
-  fontUrl:
-    "https://raw.githubusercontent.com/google/fonts/main/ofl/notosansjp/NotoSansJP%5Bwght%5D.ttf",
-  fontRoutePrefix: "/_obf/font",
-});
+import { preEncodeShuffled } from "../../../lib/index.ts";
+import { obfuscator } from "./utils/obfuscator.ts";
 
 const SELECTORS = [".secret"];
 
@@ -51,8 +46,8 @@ export default createMiddleware({
       }
       if (!html.includes("<html")) return;
 
-    const pm = await obfuscator.getRotatingMapping(html);
-    const ip = (event.request.headers.get("x-forwarded-for") ?? "").split(",")[0].trim();
+      const pm = await obfuscator.getRotatingMapping(html);
+      const ip = (event.request.headers.get("x-forwarded-for") ?? "").split(",")[0].trim();
       const ua = event.request.headers.get("user-agent") ?? "";
 
       let result = await obfuscator.serveWithMapping(html, SELECTORS, pm, {
@@ -70,6 +65,20 @@ export default createMiddleware({
       result = result.replace("</body>", `${preScript}</body>`);
 
       response.body = result;
+      const h = response.headers as any;
+      if (h) {
+        if (typeof h.set === "function") {
+          h.set("cache-control", "no-store");
+          if (typeof h.delete === "function") {
+            h.delete("content-length");
+            h.delete("Content-Length");
+          }
+        } else {
+          h["cache-control"] = "no-store";
+          delete h["content-length"];
+          delete h["Content-Length"];
+        }
+      }
     },
   ],
 });

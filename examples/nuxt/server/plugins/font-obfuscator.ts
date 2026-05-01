@@ -27,9 +27,19 @@ export default defineNitroPlugin((nitroApp) => {
     const preScript = `<script>var _pre=${JSON.stringify(preArr)},_preIdx=${JSON.stringify(preIdx)},c=0,el=document.getElementById('cnt')<\/script>`;
     response.body = response.body.replace('</body>', `${preScript}</body>`);
 
-    if (response.headers) {
-      delete response.headers['content-length'];
-      delete response.headers['Content-Length'];
+    const h = response.headers as any;
+    if (h) {
+      if (typeof h.set === 'function') {
+        h.set('cache-control', 'no-store');
+        if (typeof h.delete === 'function') {
+          h.delete('content-length');
+          h.delete('Content-Length');
+        }
+      } else {
+        delete h['content-length'];
+        delete h['Content-Length'];
+        h['cache-control'] = 'no-store';
+      }
     }
   });
 });
