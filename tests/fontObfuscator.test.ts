@@ -1,44 +1,6 @@
 import { expect, it } from "vitest";
 import { FontObfuscator, encodeText, preEncodeShuffled } from "../lib/index.ts";
 
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function extractMappingFromInjectedScript(html: string): Record<string, number> {
-  const encMatch = html.match(/_enc=atob\("([^"]+)"\)/);
-  const seedMatch = html.match(/var _seed=(\d+);/);
-  if (!encMatch || !seedMatch) {
-    throw new Error("failed to parse encoded mapping from injected script");
-  }
-
-  const enc = atob(encMatch[1]);
-  const seed = Number(seedMatch[1]);
-  const rng = mulberry32(seed);
-
-  const decoded = new Uint8Array(enc.length);
-  for (let i = 0; i < enc.length; i++) {
-    decoded[i] = enc.charCodeAt(i) ^ (Math.floor(rng() * 256) & 0xff);
-  }
-
-  const mapping: Record<string, number> = {};
-  for (let i = 0; i + 7 < decoded.length; i += 8) {
-    const src = (decoded[i] << 24) | (decoded[i + 1] << 16) | (decoded[i + 2] << 8) | decoded[i + 3];
-    const dst = (decoded[i + 4] << 24) | (decoded[i + 5] << 16) | (decoded[i + 6] << 8) | decoded[i + 7];
-    if (src > 0 && dst > 0) {
-      mapping[String.fromCodePoint(src)] = dst;
-    }
-  }
-  return mapping;
-}
-
 it("maybeHandleFontRequest returns null for unrelated path", async () => {
   const obf = new FontObfuscator({
     fontUrl: "https://example.com/font.otf",
@@ -80,26 +42,22 @@ it("obfuscateHtml keeps html unchanged when selectors are empty", async () => {
   expect(out).toBe(html);
 });
 
-it("obfuscateHtml injects style/script for configured selectors", async () => {
+it("obfuscateHtml injects @font-face style for configured selectors", async () => {
   const obf = new FontObfuscator({
     fontUrl:
       "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
   });
 
   const html = "<html><head></head><body><p class=\"a\">Hello</p></body></html>";
-  const out = await obf.obfuscateHtml(html, {
-    selectors: [".a"],
-    observeMutations: true,
-    sendClientMapping: true,
-  });
+  const out = await obf.obfuscateHtml(html, { selectors: [".a"] });
 
   expect(out).toContain("@font-face");
   expect(out).toContain("_obf/font/");
-  expect(out).toContain("MutationObserver");
+  expect(out).not.toContain("MutationObserver");
   expect(out).toContain(".a");
 });
 
-it("obfuscateHtml does not inject client mapping by default", async () => {
+it("obfuscateHtml never injects client mapping script", async () => {
   const obf = new FontObfuscator({
     fontUrl:
       "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
@@ -113,23 +71,20 @@ it("obfuscateHtml does not inject client mapping by default", async () => {
   expect(out).not.toContain("_enc=atob");
 });
 
-it("obfuscateHtml includes kanji found in html text in mapping", async () => {
+it("obfuscateHtml PUA-encodes kanji found in html text (server-side only)", async () => {
   const obf = new FontObfuscator({
     fontUrl:
       "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
   });
 
   const html = "<html><head></head><body><p class=\"a\">感じと漢字の確認</p></body></html>";
-  const out = await obf.obfuscateHtml(html, {
-    selectors: [".a"],
-    observeMutations: false,
-    sendClientMapping: true,
-  });
-  const mapping = extractMappingFromInjectedScript(out);
+  const out = await obf.obfuscateHtml(html, { selectors: [".a"] });
 
-  expect(mapping["感"]).toBeDefined();
-  expect(mapping["じ"]).toBeDefined();
-  expect(mapping["漢"]).toBeDefined();
+  // Original characters must not appear in the output (replaced by PUA codepoints).
+  expect(out).not.toContain("感");
+  expect(out).not.toContain("漢");
+  // No mapping script should be present.
+  expect(out).not.toContain("_enc=atob");
 });
 
 it("obfuscateHtml removes protected plaintext from delivered html", async () => {
@@ -232,14 +187,17 @@ it("preEncodeShuffled keeps deterministic lookup via indices", async () => {
     variants: pm.variants,
   });
 
-  expect(encoded).toHaveLength(values.length);
+  // Decoys inflate the array: encoded.length > values.length.
+  expect(encoded.length).toBeGreaterThan(values.length);
   expect(indices).toHaveLength(values.length);
 
+  // All indices must be valid positions within the (larger) encoded array.
   const indexSet = new Set(indices);
   expect(indexSet.size).toBe(values.length);
-  expect(Math.min(...indices)).toBe(0);
-  expect(Math.max(...indices)).toBe(values.length - 1);
+  expect(Math.min(...indices)).toBeGreaterThanOrEqual(0);
+  expect(Math.max(...indices)).toBeLessThan(encoded.length);
 
+  // Every real value is retrievable via its index.
   for (let i = 0; i < values.length; i++) {
     expect(encoded[indices[i]].length).toBeGreaterThan(0);
   }

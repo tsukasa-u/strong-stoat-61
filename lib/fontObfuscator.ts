@@ -21,34 +21,49 @@ export interface FontObfuscatorOptions {
    * How often (ms) to rotate the PUA shuffle mapping.
    * After each interval a new random seed is chosen, invalidating any
    * previously captured font files and `_pre` arrays.
-   * @default 300_000 (5 minutes)
+   * @default 120_000 (2 minutes)
    */
   mappingRotationIntervalMs?: number;
+  /**
+   * IP addresses of trusted reverse proxies in your infrastructure (e.g., nginx, Cloudflare).
+   * When set, the library walks X-Forwarded-For right-to-left and uses the first IP
+   * that is NOT in this list as the real client address for rate-limiting purposes.
+   * When omitted (default), the leftmost X-Forwarded-For value is used as-is.
+   * Pass an empty array `[]` to disable X-Forwarded-For entirely (identify clients by UA only).
+   */
+  trustedProxies?: string[];
 }
 
 export interface ObfuscateHtmlOptions {
   selectors: string[];
   fontFamilyName?: string;
+  /** @deprecated Client-side MutationObserver obfuscation has been removed. This field is ignored. */
   observeMutations?: boolean;
   devMode?: boolean;
   pageKey?: string;
   clientFingerprint?: string;
   /**
-   * When false, the client-side mapping script (_enc/_seed) is omitted.
-   * Static text is still obfuscated server-side; use pre-encoded value arrays
-   * for any dynamic text (e.g. counters).
-   * @default false
+   * @deprecated The XOR-encoded client mapping is no longer sent to the browser.
+   * All obfuscation is server-side only. Use {@link preEncodeShuffled} for dynamic values.
+   * This field is silently ignored.
    */
   sendClientMapping?: boolean;
 }
 
 /**
  * The result of {@link FontObfuscator.precomputeHtml}.
- * Holds the PUA-encoded HTML and the parameters needed to inject a fresh
+ * Holds the raw HTML and the precomputed mapping needed to inject a fresh
  * per-request font ticket via {@link FontObfuscator.servePrecomputed}.
+ * The HTML is re-obfuscated on every {@link FontObfuscator.servePrecomputed} call
+ * so that digit-variant codepoints differ between responses.
  */
 export interface PrecomputedPage {
-  /** HTML with protected elements already PUA-encoded at startup time. */
+  /** The original HTML passed to precomputeHtml; re-obfuscated per request in servePrecomputed. */
+  rawHtml: string;
+  /**
+   * @deprecated Pre-encoded HTML is no longer used by servePrecomputed.
+   * Use rawHtml instead; kept for backward compatibility.
+   */
   puaHtml: string;
   /** The seed used to build the mapping (fixed for the server lifetime). */
   seed: number;
@@ -65,15 +80,10 @@ export interface PrecomputedPage {
 export interface ServePrecomputedOptions {
   pageKey?: string;
   clientFingerprint?: string;
-  /** @default true */
+  /** @deprecated Client-side MutationObserver obfuscation has been removed. This field is ignored. */
   observeMutations?: boolean;
   fontFamilyName?: string;
-  /**
-   * When false, the client-side mapping script (_enc/_seed) is omitted.
-   * Static text is still obfuscated server-side; use pre-encoded value arrays
-   * for any dynamic text (e.g. counters).
-   * @default false
-   */
+  /** @deprecated The XOR-encoded client mapping is no longer sent. This field is silently ignored. */
   sendClientMapping?: boolean;
 }
 
@@ -132,6 +142,7 @@ const PUA_END = 0xF8FF;
 const MAX_MAPPABLE_CHARS = PUA_END - PUA_START + 1;
 const DEFAULT_DIGIT_VARIANT_COUNT = 4;
 const MAX_DIGIT_VARIANT_COUNT = 16;
+const DEFAULT_MAPPING_ROTATION_INTERVAL_MS = 2 * 60 * 1000;
 
 const DIGIT_VARIANT_TARGETS = new Set([
   "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
@@ -269,96 +280,6 @@ function normalizeClientFingerprint(value: string | undefined): string | undefin
   return v.length > 0 ? v : undefined;
 }
 
-function encodeMapping(mapping: Record<string, number>, xorSeed: number): string {
-  const pairs: number[] = [];
-  for (const [ch, pua] of Object.entries(mapping)) {
-    pairs.push(ch.codePointAt(0)!, pua);
-  }
-
-  const raw = new Uint8Array(pairs.length * 4);
-  for (let i = 0; i < pairs.length; i++) {
-    const cp = pairs[i];
-    raw[i * 4 + 0] = (cp >>> 24) & 0xff;
-    raw[i * 4 + 1] = (cp >>> 16) & 0xff;
-    raw[i * 4 + 2] = (cp >>> 8) & 0xff;
-    raw[i * 4 + 3] = cp & 0xff;
-  }
-
-  const rng = mulberry32(xorSeed);
-  const enc = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i++) {
-    enc[i] = raw[i] ^ (Math.floor(rng() * 256) & 0xff);
-  }
-    // Build binary string without spread operator to avoid call-stack limits
-    // when the mapping is large (up to MAX_MAPPABLE_CHARS * 8 bytes).
-    let binaryStr = "";
-    for (let i = 0; i < enc.length; i++) binaryStr += String.fromCharCode(enc[i]);
-    return btoa(binaryStr);
-}
-
-function buildClientScript(
-  selectors: string[],
-  encoded: string,
-  xorSeed: number,
-  observeMutations: boolean,
-): string {
-  const selectorsLiteral = JSON.stringify(selectors);
-  const observeLiteral = observeMutations ? "true" : "false";
-  return `(function(){
-var _sel=${selectorsLiteral};
-var _observe=${observeLiteral};
-var _enc=atob(${JSON.stringify(encoded)});
-var _seed=${xorSeed >>> 0};
-function _rng(s){var a=s>>>0;return function(){a=(a+0x6d2b79f5)>>>0;var t=a;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296;};}
-var _r=_rng(_seed);
-var _b=new Uint8Array(_enc.length);
-for(var i=0;i<_enc.length;i++)_b[i]=_enc.charCodeAt(i)^(Math.floor(_r()*256)&255);
-var _map={};
-for(var i=0;i<_b.length;i+=8){var sc=(_b[i]<<24|_b[i+1]<<16|_b[i+2]<<8|_b[i+3]);var pc=(_b[i+4]<<24|_b[i+5]<<16|_b[i+6]<<8|_b[i+7]);if(sc>0&&pc>0)_map[String.fromCodePoint(sc)]=String.fromCodePoint(pc);}
-function _obf(s){var out="";for(var i=0;i<s.length;){var cp=s.codePointAt(i);var ch=String.fromCodePoint(cp);out+=_map[ch]||ch;i+=(cp>0xFFFF?2:1);}return out;}
-function _walk(root){
-  var walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);
-  var n;
-  while((n=walker.nextNode())){
-    var p=n.parentNode;
-    if(!p||!p.nodeName)continue;
-    var t=p.nodeName.toUpperCase();
-    if(t==="SCRIPT"||t==="STYLE"||t==="TEXTAREA")continue;
-    n.nodeValue=_obf(n.nodeValue||"");
-  }
-}
-function _processNode(node){
-  if(!node)return;
-  if(node.nodeType===Node.TEXT_NODE){
-    var p=node.parentNode;
-    if(!p||!p.nodeName)return;
-    var t=p.nodeName.toUpperCase();
-    if(t==="SCRIPT"||t==="STYLE"||t==="TEXTAREA")return;
-    node.nodeValue=_obf(node.nodeValue||"");
-    return;
-  }
-  if(node.nodeType===Node.ELEMENT_NODE){
-    _walk(node);
-  }
-}
-for(var i=0;i<_sel.length;i++){
-  var list=document.querySelectorAll(_sel[i]);
-  for(var j=0;j<list.length;j++){
-    var root=list[j];
-    if(_observe&&typeof MutationObserver!=="undefined"){
-      var obs=new MutationObserver(function(mutations){
-        for(var mi=0;mi<mutations.length;mi++){
-          var added=mutations[mi].addedNodes;
-          for(var ai=0;ai<added.length;ai++)_processNode(added[ai]);
-        }
-      });
-      obs.observe(root,{childList:true,subtree:true});
-    }
-  }
-}
-})();`;
-}
-
 function obfuscateTextWithMapping(
   input: string,
   mapping: Record<string, number>,
@@ -402,8 +323,11 @@ export function encodeText(
  * together with an index map so the client can resolve `values[i]` without the
  * indices being trivially sequential.
  *
- * This breaks the naive sequential-correlation attack where `_pre[0]` could be
- * assumed to equal `encode("0")`, `_pre[1]` = `encode("1")`, etc.
+ * **Decoy entries** are interspersed at random positions so that
+ * `encoded.length` does not reveal the actual count of values, making it
+ * harder for an attacker to infer the range of possible counter values.
+ * Only positions referenced by `indices` are real; all other positions are
+ * decoys with random (but valid-looking) PUA codepoints.
  *
  * The client receives both arrays and reads: `encoded[indices[i]]`.
  *
@@ -422,20 +346,67 @@ export function encodeText(
 export function preEncodeShuffled(
   values: string[],
   mapping: Record<string, number>,
-  options?: { variants?: Record<string, number[]>; variantSeed?: number },
+  options?: { variants?: Record<string, number[]>; variantSeed?: number; decoyCount?: number },
 ): { encoded: string[]; indices: number[] } {
   const n = values.length;
+  // Decoy entries pad the array so its length does not reveal the true value count.
+  const decoyCount = options?.decoyCount ?? Math.max(5, Math.ceil(n * 0.5));
+  const totalLen = n + decoyCount;
+
+  // Choose which positions in the output array will hold decoy entries.
+  const allPositions = Array.from({ length: totalLen }, (_, i) => i);
+  shuffle(allPositions, mulberry32(secureRandU32()));
+  const decoyPositionSet = new Set(allPositions.slice(0, decoyCount));
+
+  // Shuffle real values so the order of encoded entries reveals nothing.
   const perm = Array.from({ length: n }, (_, i) => i);
   shuffle(perm, mulberry32(secureRandU32()));
   const baseSeed = options?.variantSeed ?? secureRandU32();
-  const encoded = perm.map((i, pos) =>
-    encodeText(values[i], mapping, {
+
+  // Build decoy strings from existing PUA codepoints (valid-looking but unreferenced).
+  const puaValues = Object.values(mapping);
+  const decoyRng = mulberry32(secureRandU32());
+  const decoys: string[] = [];
+  for (let d = 0; d < decoyCount; d++) {
+    const len = 1 + Math.floor(decoyRng() * 3); // 1–3 PUA characters per decoy
+    let s = "";
+    for (let k = 0; k < len; k++) {
+      if (puaValues.length > 0) {
+        s += String.fromCodePoint(puaValues[Math.floor(decoyRng() * puaValues.length)]);
+      }
+    }
+    decoys.push(s || String.fromCodePoint(PUA_START));
+  }
+
+  // Collect real-entry positions (those not occupied by decoys).
+  const realSlots: number[] = [];
+  for (let slot = 0; slot < totalLen; slot++) {
+    if (!decoyPositionSet.has(slot)) realSlots.push(slot);
+  }
+
+  // Fill the output array.
+  const encoded: string[] = new Array(totalLen);
+
+  // Place encoded real values at their real slots (in shuffled order).
+  for (let pos = 0; pos < n; pos++) {
+    const origIdx = perm[pos];
+    encoded[realSlots[pos]] = encodeText(values[origIdx], mapping, {
       variants: options?.variants,
       variantSeed: (baseSeed ^ Math.imul(pos + 1, 0x9e3779b9)) >>> 0,
-    })
-  );
+    });
+  }
+
+  // Place decoys at their assigned slots.
+  const decoySlots = Array.from(decoyPositionSet).sort((a, b) => a - b);
+  for (let d = 0; d < decoyCount; d++) {
+    encoded[decoySlots[d]] = decoys[d];
+  }
+
+  // Build index map: indices[origIdx] = position in `encoded` for that value.
   const indices = new Array<number>(n);
-  perm.forEach((origIdx, pos) => { indices[origIdx] = pos; });
+  for (let pos = 0; pos < n; pos++) {
+    indices[perm[pos]] = realSlots[pos];
+  }
   return { encoded, indices };
 }
 
@@ -629,6 +600,7 @@ export class FontObfuscator {
   private readonly fontGateMaxSize = 50_000;
   private readonly fontTicketsMaxSize = 200_000;
   private readonly digitVariantCount: number;
+  private readonly trustedProxies: string[] | undefined;
 
   constructor(options: FontObfuscatorOptions) {
     this.fontUrl = options.fontUrl;
@@ -649,7 +621,8 @@ export class FontObfuscator {
       1,
       Math.min(options.digitVariantCount ?? DEFAULT_DIGIT_VARIANT_COUNT, MAX_DIGIT_VARIANT_COUNT),
     );
-    this.mappingRotationIntervalMs = options.mappingRotationIntervalMs ?? 5 * 60 * 1000;
+    this.mappingRotationIntervalMs = options.mappingRotationIntervalMs ?? DEFAULT_MAPPING_ROTATION_INTERVAL_MS;
+    this.trustedProxies = options.trustedProxies;
     this.hmacSecret = crypto.getRandomValues(new Uint8Array(32));
     const keyMaterial = this.hmacSecret.buffer.slice(
       this.hmacSecret.byteOffset,
@@ -747,7 +720,7 @@ export class FontObfuscator {
   async precomputeHtml(html: string, selectors: string[]): Promise<PrecomputedPage> {
     const normalizedSelectors = normalizeSelectors(selectors);
     if (normalizedSelectors.length === 0) {
-      return { puaHtml: html, seed: 0, candidateAlphabet: [], mapping: {}, variants: {}, selectors: [] };
+      return { rawHtml: html, puaHtml: html, seed: 0, candidateAlphabet: [], mapping: {}, variants: {}, selectors: [] };
     }
     const candidateAlphabet = this.buildCandidateAlphabet(html);
     const seed = secureRandU32();
@@ -759,7 +732,7 @@ export class FontObfuscator {
       variants,
       secureRandU32(),
     );
-    return { puaHtml, seed, candidateAlphabet, mapping, variants, selectors: normalizedSelectors };
+    return { rawHtml: html, puaHtml, seed, candidateAlphabet, mapping, variants, selectors: normalizedSelectors };
   }
 
   /**
@@ -818,17 +791,9 @@ export class FontObfuscator {
       clientFingerprint: normalizeClientFingerprint(options.clientFingerprint),
     });
 
-    const xorSeed = secureRandU32();
-    const encoded = encodeMapping(mapping, xorSeed);
     const family = options.fontFamilyName ?? `Obf_${ticket.token.slice(0, 8)}`;
-    const observeMutations = options.observeMutations ?? true;
     const fontUrl = `${this.fontRoutePrefix}/${ticket.token}?exp=${ticket.expiry}&sig=${ticket.sig}`;
-
-    const sendClientMapping = options.sendClientMapping === true;
     const style = `<style>@font-face{font-family:${safeCssStringLiteral(family)};src:url("${fontUrl}") format("truetype");}${normalizedSelectors.join(",")}{font-family:${safeCssStringLiteral(family)},sans-serif !important;}</style>`;
-    const script = sendClientMapping
-      ? `<script>${buildClientScript(normalizedSelectors, encoded, xorSeed, observeMutations)}</script>`
-      : "";
 
     let out = obfuscateSelectorScopeHtml(
       html,
@@ -838,7 +803,6 @@ export class FontObfuscator {
       secureRandU32(),
     );
     out = injectBeforeEndTag(out, "head", style);
-    if (script) out = injectBeforeEndTag(out, "body", script);
     return out;
   }
 
@@ -915,8 +879,8 @@ export class FontObfuscator {
   }
 
   async servePrecomputed(page: PrecomputedPage, options: ServePrecomputedOptions = {}): Promise<string> {
-    const { puaHtml, seed, candidateAlphabet, mapping, selectors } = page;
-    if (selectors.length === 0) return puaHtml;
+    const { rawHtml, puaHtml, seed, candidateAlphabet, mapping, variants, selectors } = page;
+    if (selectors.length === 0) return rawHtml ?? puaHtml;
 
     const pageKey = normalizePageKey(options.pageKey);
     const selectorKey = normalizeSelectorKey(selectors);
@@ -929,20 +893,15 @@ export class FontObfuscator {
       clientFingerprint: normalizeClientFingerprint(options.clientFingerprint),
     });
 
-    const xorSeed = secureRandU32();
-    const encoded = encodeMapping(mapping, xorSeed);
     const family = options.fontFamilyName ?? `Obf_${ticket.token.slice(0, 8)}`;
-    const observeMutations = options.observeMutations ?? true;
     const fontUrl = `${this.fontRoutePrefix}/${ticket.token}?exp=${ticket.expiry}&sig=${ticket.sig}`;
-
-    const sendClientMapping = options.sendClientMapping === true;
     const style = `<style>@font-face{font-family:${safeCssStringLiteral(family)};src:url("${fontUrl}") format("truetype");}${selectors.join(",")}{font-family:${safeCssStringLiteral(family)},sans-serif !important;}</style>`;
-    const script = sendClientMapping
-      ? `<script>${buildClientScript(selectors, encoded, xorSeed, observeMutations)}</script>`
-      : "";
 
-    let out = injectBeforeEndTag(puaHtml, "head", style);
-    if (script) out = injectBeforeEndTag(out, "body", script);
+    // Re-obfuscate per request with a fresh variantSeed so digit-variant
+    // codepoints differ between responses within the same rotation window.
+    const source = rawHtml ?? puaHtml;
+    let out = obfuscateSelectorScopeHtml(source, selectors, mapping, variants ?? {}, secureRandU32());
+    out = injectBeforeEndTag(out, "head", style);
     return out;
   }
 
@@ -973,21 +932,12 @@ export class FontObfuscator {
       unmappedChars = this.findUnmappedChars(html, selectors, mapping);
     }
 
-    const xorSeed = secureRandU32();
-    const encoded = encodeMapping(mapping, xorSeed);
     const family = options.fontFamilyName ?? `Obf_${ticket.token.slice(0, 8)}`;
-    const observeMutations = options.observeMutations ?? true;
     const fontUrl = `${this.fontRoutePrefix}/${ticket.token}?exp=${ticket.expiry}&sig=${ticket.sig}`;
-
-    const sendClientMapping = options.sendClientMapping === true;
     const style = `<style>@font-face{font-family:${safeCssStringLiteral(family)};src:url("${fontUrl}") format("truetype");}${selectors.join(",")}{font-family:${safeCssStringLiteral(family)},sans-serif !important;}</style>`;
-    const script = sendClientMapping
-      ? `<script>${buildClientScript(selectors, encoded, xorSeed, observeMutations)}</script>`
-      : "";
 
     let out = obfuscateSelectorScopeHtml(html, selectors, mapping, variants, secureRandU32());
     out = injectBeforeEndTag(out, "head", style);
-    if (script) out = injectBeforeEndTag(out, "body", script);
 
     if (devMode && unmappedChars && unmappedChars.size > 0) {
       const warningHtml = this.buildDevWarningPanel(unmappedChars, selectors);
@@ -1156,12 +1106,29 @@ export class FontObfuscator {
     return toHex(new Uint8Array(sig));
   }
 
+  private extractClientIp(headers: Headers): string {
+    if (this.trustedProxies === undefined) {
+      // Legacy mode (no proxy config): trust leftmost X-Forwarded-For value.
+      return (headers.get("x-forwarded-for") ?? headers.get("cf-connecting-ip") ?? "")
+        .split(",")[0]
+        .trim();
+    }
+    // Trusted-proxy mode: walk XFF right-to-left, return first non-trusted IP.
+    // Cloudflare's dedicated header takes priority when set and non-trusted.
+    const cfIp = headers.get("cf-connecting-ip") ?? "";
+    if (cfIp && !this.trustedProxies.includes(cfIp)) return cfIp;
+    const xff = headers.get("x-forwarded-for") ?? "";
+    const candidates = xff.split(",").map((s) => s.trim()).filter(Boolean).reverse();
+    for (const ip of candidates) {
+      if (!this.trustedProxies.includes(ip)) return ip;
+    }
+    // All addresses were trusted proxies or headers were absent — identify by UA only.
+    return "";
+  }
+
   private getClientFingerprint(req: Request): string {
-    const headers = req.headers;
-    const ua = headers.get("user-agent") ?? "";
-    const ip = (headers.get("x-forwarded-for") ?? headers.get("cf-connecting-ip") ?? "")
-      .split(",")[0]
-      .trim();
+    const ua = req.headers.get("user-agent") ?? "";
+    const ip = this.extractClientIp(req.headers);
     return `${ip}|${ua}`;
   }
 

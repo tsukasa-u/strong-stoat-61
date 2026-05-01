@@ -24,7 +24,7 @@ it("withFetchObfuscation injects obfuscation into html responses", async () => {
         headers: { "content-type": "text/html; charset=utf-8" },
       }),
     obfuscator,
-    { selectors: [".t"], sendClientMapping: true },
+    { selectors: [".t"] },
   );
 
   const res = await wrapped(new Request("http://localhost/"));
@@ -32,7 +32,7 @@ it("withFetchObfuscation injects obfuscation into html responses", async () => {
   expect(res.status).toBe(200);
   expect(html).toContain("@font-face");
   expect(html).toContain("_obf/font/");
-  expect(html).toContain("MutationObserver");
+  expect(html).not.toContain("MutationObserver");
   // Obfuscated HTML must never be cached — the embedded font ticket is one-time use with a 5s TTL.
   expect(res.headers.get("cache-control")).toBe("no-store");
 });
@@ -70,7 +70,7 @@ it("framework aliases (Next/Remix/Astro/Hono) behave like fetch wrapper", async 
           headers: { "content-type": "text/html" },
         }),
       obfuscator,
-      { selectors: ["#a"], sendClientMapping: true },
+      { selectors: ["#a"] },
     );
     const out = await (await wrapped(new Request("http://localhost/"))).text();
     expect(out).toContain("@font-face");
