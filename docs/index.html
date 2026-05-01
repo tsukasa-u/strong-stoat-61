@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Font Obfuscator Docs</title>
+  <style>
+    :root {
+      --bg: #f4f5f7;
+      --ink: #1e2329;
+      --muted: #58626d;
+      --line: #d8dde4;
+      --card: #fff;
+      --accent: #0f766e;
+      --accent-soft: #e6f4f1;
+      --code-bg: #0f1720;
+      --code-ink: #dbe6ef;
+      --code-accent: #b8f0dd;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      line-height: 1.65;
+      padding: 1.2rem;
+    }
+
+    .wrap {
+      max-width: 980px;
+      margin: 0 auto;
+      display: grid;
+      gap: 0.9rem;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--card);
+      padding: 1rem;
+    }
+
+    .switch {
+      display: inline-flex;
+      gap: 0.4rem;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 0.25rem;
+      background: #fff;
+    }
+
+    .switch button {
+      border: 0;
+      border-radius: 999px;
+      padding: 0.32rem 0.62rem;
+      font-weight: 700;
+      cursor: pointer;
+      color: var(--muted);
+      background: transparent;
+    }
+
+    .switch button.active {
+      color: #fff;
+      background: var(--accent);
+    }
+
+    h1, h2 {
+      margin: 0 0 0.45rem;
+      line-height: 1.3;
+    }
+
+    h2 { font-size: 1.08rem; }
+
+    p { margin: 0.45rem 0; }
+
+    ul { margin: 0.4rem 0 0 1.1rem; }
+
+    code, pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    pre {
+      margin: 0.45rem 0 0;
+      border-radius: 10px;
+      border: 1px solid #26313c;
+      padding: 0.72rem;
+      background: var(--code-bg);
+      color: var(--code-ink);
+      overflow: auto;
+    }
+
+    .hint {
+      border-left: 4px solid #d98000;
+      background: #fff7e6;
+      padding: 0.6rem 0.72rem;
+      border-radius: 8px;
+    }
+
+    a { color: #0f4a9f; }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="card">
+      <div class="switch" role="group" aria-label="Language">
+        <button id="lang-en" class="active" type="button">English</button>
+        <button id="lang-ja" type="button">日本語</button>
+      </div>
+      <h1 data-i18n="title"></h1>
+      <p data-i18n="lead"></p>
+      <p>
+        <a href="../README.md">README (EN)</a> /
+        <a href="../README.ja.md">README (JA)</a>
+      </p>
+    </section>
+
+    <section class="card">
+      <h2 data-i18n="ghTitle"></h2>
+      <p class="hint" data-i18n="ghNote"></p>
+      <ul>
+        <li data-i18n="ghPoint1"></li>
+        <li data-i18n="ghPoint2"></li>
+        <li data-i18n="ghPoint3"></li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2 data-i18n="adapterTitle"></h2>
+      <pre><code>withNextRouteHandlerObfuscation(handler, obfuscator, { selectors })
+withRemixRequestHandlerObfuscation(handler, obfuscator, { selectors })
+withAstroEndpointObfuscation(handler, obfuscator, { selectors })
+withSvelteKitHandleObfuscation(handle, obfuscator, { selectors })
+withHonoObfuscation(handler, obfuscator, { selectors })
+withFetchObfuscation(handler, obfuscator, { selectors })</code></pre>
+    </section>
+
+    <section class="card">
+      <h2 data-i18n="quickTitle"></h2>
+      <pre><code>import { FontObfuscator, withFetchObfuscation } from "font-obfuscator";
+
+const obfuscator = new FontObfuscator({
+  fontUrl: "https://.../NotoSansCJKjp-Regular.otf",
+  fontRoutePrefix: "/_obf/font",
+});
+
+const handler = withFetchObfuscation(appHandler, obfuscator, {
+  selectors: [".secret"],
+  observeMutations: true,
+});</code></pre>
+    </section>
+  </main>
+
+  <script>
+    const i18n = {
+      en: {
+        title: "Font Obfuscator Documentation (GitHub Pages)",
+        lead: "This static site explains integration. Runtime obfuscation should run on a server/edge runtime.",
+        ghTitle: "GitHub Pages Hosting Strategy",
+        ghNote: "GitHub Pages is static hosting. Tokenized runtime font endpoints cannot execute on Pages alone.",
+        ghPoint1: "Use Pages for docs and implementation guides.",
+        ghPoint2: "Run obfuscation runtime on Deno/Node/Edge (Cloudflare Workers, Fly.io, etc.).",
+        ghPoint3: "Link this docs site to your live runtime demo endpoint.",
+        adapterTitle: "Supported Framework Adapters",
+        quickTitle: "Quick Integration",
+      },
+      ja: {
+        title: "Font Obfuscator ドキュメント (GitHub Pages)",
+        lead: "この静的サイトは導入説明用です。実際の難読化ランタイムはサーバー/エッジで動かしてください。",
+        ghTitle: "GitHub Pages を考慮した運用",
+        ghNote: "GitHub Pages は静的配信のため、token 付きフォント配信エンドポイントを単体では実行できません。",
+        ghPoint1: "Pages はドキュメントと導入ガイドに使う。",
+        ghPoint2: "難読化ランタイムは Deno/Node/Edge (Cloudflare Workers, Fly.io など) で運用する。",
+        ghPoint3: "この docs サイトから本番デモURLへリンクする。",
+        adapterTitle: "対応フレームワークアダプタ",
+        quickTitle: "最小導入例",
+      },
+    };
+
+    let currentLang = "en";
+
+    function setButtons() {
+      document.getElementById("lang-en")?.classList.toggle("active", currentLang === "en");
+      document.getElementById("lang-ja")?.classList.toggle("active", currentLang === "ja");
+      document.documentElement.lang = currentLang;
+    }
+
+    function applyLang(lang) {
+      currentLang = lang;
+      const t = i18n[lang];
+      document.querySelectorAll("[data-i18n]").forEach((el) => {
+        const k = el.getAttribute("data-i18n");
+        if (!k) return;
+        el.textContent = t[k] || "";
+      });
+      setButtons();
+    }
+
+    document.getElementById("lang-en")?.addEventListener("click", () => applyLang("en"));
+    document.getElementById("lang-ja")?.addEventListener("click", () => applyLang("ja"));
+
+    applyLang("en");
+  </script>
+</body>
+</html>
