@@ -99,6 +99,47 @@ it("obfuscateHtml includes kanji found in html text in mapping", async () => {
   expect(mapping["漢"]).toBeDefined();
 });
 
+it("obfuscateHtml removes protected plaintext from delivered html", async () => {
+  const obf = new FontObfuscator({
+    fontUrl:
+      "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+  });
+
+  const html = "<html><head></head><body><p class='a'>Sensitive123</p><p id='secret'>TopSecret!</p></body></html>";
+  const out = await obf.obfuscateHtml(html, { selectors: [".a", "#secret"], observeMutations: true });
+
+  expect(out).not.toContain("Sensitive123");
+  expect(out).not.toContain("TopSecret!");
+});
+
+it("obfuscateHtml rejects unsafe selectors", async () => {
+  const obf = new FontObfuscator({
+    fontUrl:
+      "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+  });
+
+  await expect(
+    obf.obfuscateHtml("<html><head></head><body><p>x</p></body></html>", {
+      selectors: [".ok", "</style><script>alert(1)</script>"],
+    }),
+  ).rejects.toThrow(/unsafe selector/);
+});
+
+it("obfuscateHtml emits strong 64-hex signature in font URL", async () => {
+  const obf = new FontObfuscator({
+    fontUrl:
+      "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+  });
+
+  const out = await obf.obfuscateHtml("<html><head></head><body><p class='a'>Hello</p></body></html>", {
+    selectors: [".a"],
+  });
+
+  const m = out.match(/sig=([0-9a-f]{64})/i);
+  expect(m).toBeTruthy();
+  expect(m?.[1].length).toBe(64);
+});
+
 it("devMode option accepts boolean flag", async () => {
   const obfWithDevMode = new FontObfuscator({
     fontUrl: "https://example.com/font.otf",

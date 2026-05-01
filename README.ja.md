@@ -81,6 +81,17 @@ Font Obfuscator は、HTMLレスポンスに難読化処理を注入するライ
 
 - WAF、レート制限、Bot判定などを併用
 
+1. `x-forwarded-for` の信頼境界を明確化
+
+- 信頼できるリバースプロキシ/CDN 配下でのみ `x-forwarded-for` を信頼し、それ以外ではユーザー入力として扱う
+
+現行実装のハードニング:
+
+- フォントURLはワンタイムチケット
+- フォントURLは短命TTL
+- チケット署名は HMAC-SHA256
+- インライン注入安全性のための selector 入力バリデーション
+
 ## Core API
 
 ### `new FontObfuscator(options)`
@@ -95,6 +106,8 @@ Font Obfuscator は、HTMLレスポンスに難読化処理を注入するライ
 - `selectors: string[]` (必須)
 - `fontFamilyName?: string`
 - `observeMutations?: boolean` (既定 `true`)
+- `pageKey?: string`
+- `clientFingerprint?: string`
 
 ### `await obfuscator.maybeHandleFontRequest(request)`
 
@@ -216,6 +229,8 @@ pnpm test
 - Adapter 動作 (Next/Remix/Astro/Hono/SvelteKit)
 - HTML のみ注入されること
 - 無効 token のハンドリング
+- unsafe selector の拒否
+- 強い署名形式 (`sig` が 64 hex)
 
 ## ランタイム選定: Node/pnpm
 

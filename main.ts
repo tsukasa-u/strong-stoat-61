@@ -835,13 +835,9 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
         copyDemoBtn: "📋 コピーして確認",
         copyResultLabel: "クリップボードに入った文字列（これがスクレイパーに渡るもの）",
         srcPeekBtn: "🔍 DOM内の実際の文字コードを見る",
-        target1: "この文章は難読化されます: Hello, world! こんにちは 12345",
-        target2: "同じセレクタの別要素も難読化されます。",
-        secret: "この要素も難読化されます。",
         plain: "この段落は平文のままです。対象外要素は影響を受けません。",
         addButton: "動的テキスト追加",
         dynamicNote: "追加したテキストもリアルタイムで難読化されます（MutationObserver 対応）",
-        dynamicLine: "動的追加テキスト: Attack at dawn! こんばんは",
         usageTitle: "導入側コード例",
         frameworkTitle: "主要フレームワーク対応",
         inspectorTitle: "仕組みを 3 ステップで確認する",
@@ -860,6 +856,7 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
         playObfLabel: "ブラウザ描画（人間には正しく読める）",
         playStatusIdle: "入力して「対象へ適用」を押してください。",
         playStatusFmt: "変換結果: 全 {total} 文字 / PUA変換 {mapped} 文字 / 未変換 {unmapped} 文字",
+        redactedSource: "保護対象テキストは配布ソースから除外されています",
       },
       en: {
         title: "Font Obfuscator Library",
@@ -878,13 +875,9 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
         copyDemoBtn: "📋 Copy & see what you get",
         copyResultLabel: "What went to clipboard (what scrapers would receive)",
         srcPeekBtn: "🔍 View actual DOM character codes",
-        target1: "This text will be obfuscated: Hello, world! こんにちは 12345",
-        target2: "Other elements with the same selector are also obfuscated.",
-        secret: "This element is also obfuscated.",
         plain: "This paragraph stays plain text and is not targeted.",
         addButton: "Add Dynamic Text",
         dynamicNote: "Dynamically added text is also obfuscated in real time (MutationObserver).",
-        dynamicLine: "Dynamic text: Attack at dawn! こんばんは",
         usageTitle: "Integration Example",
         frameworkTitle: "Major Framework Adapters",
         inspectorTitle: "See how it works in 3 steps",
@@ -903,6 +896,7 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
         playObfLabel: "Browser render (human-readable)",
         playStatusIdle: "Enter text and click Apply to Target.",
         playStatusFmt: "Result: total {total} chars / mapped to PUA {mapped} / unchanged {unmapped}",
+        redactedSource: "Protected text is not shipped in distributable i18n/source payloads",
       },
     };
 
@@ -976,9 +970,6 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
         if (typeof v === "string") el.setAttribute("placeholder", v);
       });
 
-      const target1 = document.getElementById("target-1");
-      const target2 = document.getElementById("target-2");
-      const secret = document.getElementById("secret");
       const plain = document.getElementById("plain-text");
       const add = document.getElementById("add");
       const dynamic = document.getElementById("dynamic");
@@ -987,9 +978,6 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
       const playTarget = document.getElementById("play-target");
       const playStatus = document.getElementById("play-status");
 
-      if (target1) target1.textContent = t.target1;
-      if (target2) target2.textContent = t.target2;
-      if (secret) secret.textContent = t.secret;
       if (plain) plain.textContent = t.plain;
       if (add) add.textContent = t.addButton;
       if (dynamic) dynamic.innerHTML = "";
@@ -1011,16 +999,8 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
 
     function sourceTextForSelector(selector) {
       const t = i18n[currentLang];
-      if (selector === "#secret") return t.secret;
-
-      if (selector === ".obf-target") {
-        const chunks = [t.target1, t.target2];
-        const dynamicCount = document.querySelectorAll("#dynamic p").length;
-        for (let i = 0; i < dynamicCount; i++) chunks.push(t.dynamicLine);
-        const playPlain = (document.getElementById("play-plain")?.textContent || "").trim();
-        if (playPlain.length > 0) chunks.push(playPlain);
-        return chunks.join("\\n---\\n");
-      }
+      if (selector === "#secret") return "[" + t.redactedSource + "]";
+      if (selector === ".obf-target") return "[" + t.redactedSource + "]";
 
       return "";
     }
@@ -1137,7 +1117,9 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
       const root = document.getElementById("dynamic");
       if (!root) return;
       const p = document.createElement("p");
-      p.textContent = i18n[currentLang].dynamicLine;
+      p.textContent = currentLang === "ja"
+        ? "動的追加テキスト #" + (root.childElementCount + 1)
+        : "Dynamic line #" + (root.childElementCount + 1);
       root.appendChild(p);
       setTimeout(refreshInspector, 0);
     });
@@ -1212,6 +1194,8 @@ async function handler(req: Request): Promise<Response> {
 
   const html = await obfuscator.obfuscateHtml(basePageHtml(), {
     selectors: [".obf-target", "#secret"],
+    pageKey: url.pathname,
+    clientFingerprint: `${(req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim()}|${req.headers.get("user-agent") ?? ""}`,
   });
 
   return new Response(html, {

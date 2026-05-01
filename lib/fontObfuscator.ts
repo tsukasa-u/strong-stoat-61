@@ -17,12 +17,26 @@ export interface ObfuscateHtmlOptions {
   fontFamilyName?: string;
   observeMutations?: boolean;
   devMode?: boolean;
+  pageKey?: string;
+  clientFingerprint?: string;
 }
 
-interface SessionEntry {
+interface FontTicket {
   seed: number;
+  token: string;
   expiry: number;
+  used: boolean;
+  pageKey: string;
+  selectorKey: string;
+  clientFingerprint?: string;
   candidateAlphabet?: string[];
+}
+
+interface GateState {
+  count: number;
+  resetAt: number;
+  failures: number;
+  blockedUntil: number;
 }
 
 interface ScrambleResult {
@@ -32,6 +46,11 @@ interface ScrambleResult {
 
 const DEFAULT_FONT_ROUTE_PREFIX = "/_obf/font";
 const DEFAULT_SESSION_TTL_MS = 60 * 60 * 1000;
+const DEFAULT_FONT_URL_TTL_MS = 15 * 1000;
+const DEFAULT_FONT_GATE_WINDOW_MS = 60 * 1000;
+const DEFAULT_FONT_GATE_MAX_PER_WINDOW = 20;
+const DEFAULT_FONT_GATE_BLOCK_AFTER_FAILURES = 5;
+const DEFAULT_FONT_GATE_BLOCK_MS = 10 * 60 * 1000;
 const PUA_START = 0xE000;
 const PUA_END = 0xF8FF;
 const MAX_MAPPABLE_CHARS = PUA_END - PUA_START + 1;
@@ -106,6 +125,62 @@ function hashCharList(chars: string[]): number {
   return h >>> 0;
 }
 
+function fnv1a32(input: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i) & 0xff;
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function toHex32(n: number): string {
+  return (n >>> 0).toString(16).padStart(8, "0");
+}
+
+function toHex(bytes: Uint8Array): string {
+  let out = "";
+  for (const b of bytes) out += b.toString(16).padStart(2, "0");
+  return out;
+}
+
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+function normalizeSelectors(selectors: string[]): string[] {
+  const out: string[] = [];
+  for (const raw of selectors) {
+    const s = raw.trim();
+    if (!s) continue;
+    // Guard against breaking inline style/script contexts.
+    if (/[<>{};]/.test(s)) {
+      throw new Error(`unsafe selector: ${s}`);
+    }
+    out.push(s);
+  }
+  return out;
+}
+
+function normalizePageKey(value: string | undefined): string {
+  const v = (value ?? "").trim();
+  return v.length > 0 ? v : "/";
+}
+
+function normalizeSelectorKey(selectors: string[]): string {
+  return selectors.map((s) => s.trim()).filter((s) => s.length > 0).join("|");
+}
+
+function normalizeClientFingerprint(value: string | undefined): string | undefined {
+  const v = (value ?? "").trim();
+  return v.length > 0 ? v : undefined;
+}
+
 function encodeMapping(mapping: Record<string, number>, xorSeed: number): string {
   const pairs: number[] = [];
   for (const [ch, pua] of Object.entries(mapping)) {
@@ -178,7 +253,6 @@ for(var i=0;i<_sel.length;i++){
   var list=document.querySelectorAll(_sel[i]);
   for(var j=0;j<list.length;j++){
     var root=list[j];
-    _walk(root);
     if(_observe&&typeof MutationObserver!=="undefined"){
       var obs=new MutationObserver(function(mutations){
         for(var mi=0;mi<mutations.length;mi++){
@@ -193,6 +267,156 @@ for(var i=0;i<_sel.length;i++){
 })();`;
 }
 
+function obfuscateTextWithMapping(input: string, mapping: Record<string, number>): string {
+  let out = "";
+  for (let i = 0; i < input.length;) {
+    const cp = input.codePointAt(i)!;
+    const ch = String.fromCodePoint(cp);
+    const mapped = mapping[ch];
+    out += mapped ? String.fromCodePoint(mapped) : ch;
+    i += cp > 0xffff ? 2 : 1;
+  }
+  return out;
+}
+
+interface SelectorSets {
+  ids: Set<string>;
+  classes: Set<string>;
+}
+
+interface SelectorFrame {
+  tagName: string;
+  inTargetScope: boolean;
+  inNoParseScope: boolean;
+}
+
+function buildSelectorSets(selectors: string[]): SelectorSets {
+  const ids = new Set<string>();
+  const classes = new Set<string>();
+  for (const raw of selectors) {
+    const s = raw.trim();
+    if (!s) continue;
+    if (s.startsWith("#") && s.length > 1) ids.add(s.slice(1));
+    if (s.startsWith(".") && s.length > 1) classes.add(s.slice(1));
+  }
+  return { ids, classes };
+}
+
+function indexOfTagEnd(html: string, from: number): number {
+  let quote: string | null = null;
+  for (let i = from; i < html.length; i++) {
+    const ch = html[i];
+    if (quote) {
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch === ">") return i;
+  }
+  return html.length - 1;
+}
+
+function parseTagName(rawTag: string): string | null {
+  const m = rawTag.match(/^<\s*\/?\s*([a-zA-Z][\w:-]*)/);
+  return m ? m[1].toLowerCase() : null;
+}
+
+function parseAttributeValue(rawTag: string, attrName: string): string | undefined {
+  const re = new RegExp(
+    `\\b${attrName}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'=<>` + "`" + `]+))`,
+    "i",
+  );
+  const m = rawTag.match(re);
+  if (!m) return undefined;
+  return m[1] ?? m[2] ?? m[3] ?? "";
+}
+
+function matchesSelectorSets(rawTag: string, sets: SelectorSets): boolean {
+  if (sets.ids.size === 0 && sets.classes.size === 0) return false;
+
+  const idValue = parseAttributeValue(rawTag, "id");
+  if (idValue && sets.ids.has(idValue.trim())) return true;
+
+  const classValue = parseAttributeValue(rawTag, "class");
+  if (!classValue) return false;
+  const tokens = classValue.split(/\s+/).filter(Boolean);
+  return tokens.some((token) => sets.classes.has(token));
+}
+
+function obfuscateSelectorScopeHtml(
+  html: string,
+  selectors: string[],
+  mapping: Record<string, number>,
+): string {
+  const sets = buildSelectorSets(selectors);
+  if (sets.ids.size === 0 && sets.classes.size === 0) return html;
+
+  const stack: SelectorFrame[] = [];
+  let targetDepth = 0;
+  let noParseDepth = 0;
+  let out = "";
+  let i = 0;
+
+  while (i < html.length) {
+    if (html[i] !== "<") {
+      const next = html.indexOf("<", i);
+      const end = next === -1 ? html.length : next;
+      const chunk = html.slice(i, end);
+      out += (targetDepth > 0 && noParseDepth === 0) ? obfuscateTextWithMapping(chunk, mapping) : chunk;
+      i = end;
+      continue;
+    }
+
+    if (html.startsWith("<!--", i)) {
+      const end = html.indexOf("-->", i + 4);
+      const stop = end === -1 ? html.length : end + 3;
+      out += html.slice(i, stop);
+      i = stop;
+      continue;
+    }
+
+    const tagEnd = indexOfTagEnd(html, i + 1);
+    const rawTag = html.slice(i, tagEnd + 1);
+
+    if (/^<\s*\//.test(rawTag)) {
+      const closeName = parseTagName(rawTag);
+      if (closeName) {
+        for (let k = stack.length - 1; k >= 0; k--) {
+          if (stack[k].tagName !== closeName) continue;
+          for (let p = stack.length - 1; p >= k; p--) {
+            const frame = stack.pop()!;
+            if (frame.inTargetScope) targetDepth -= 1;
+            if (frame.inNoParseScope) noParseDepth -= 1;
+          }
+          break;
+        }
+      }
+      out += rawTag;
+      i = tagEnd + 1;
+      continue;
+    }
+
+    const tagName = parseTagName(rawTag);
+    const selfClose = /\/\s*>$/.test(rawTag);
+    const noParseTag = tagName === "script" || tagName === "style" || tagName === "textarea";
+    const inTargetScope = targetDepth > 0 || matchesSelectorSets(rawTag, sets);
+
+    if (tagName && !selfClose) {
+      stack.push({ tagName, inTargetScope, inNoParseScope: noParseTag });
+      if (inTargetScope) targetDepth += 1;
+      if (noParseTag) noParseDepth += 1;
+    }
+
+    out += rawTag;
+    i = tagEnd + 1;
+  }
+
+  return out;
+}
+
 function injectBeforeEndTag(html: string, tag: string, injection: string): string {
   const needle = `</${tag}>`;
   const idx = html.toLowerCase().lastIndexOf(needle);
@@ -204,10 +428,14 @@ export class FontObfuscator {
   private readonly fontUrl: string;
   private readonly fontRoutePrefix: string;
   private readonly sessionTtlMs: number;
+  private readonly fontUrlTtlMs: number;
   private readonly alphabet: string[];
   private readonly devMode: boolean;
+  private readonly hmacSecret: Uint8Array;
+  private readonly hmacKeyPromise: Promise<CryptoKey>;
 
-  private sessions = new Map<string, SessionEntry>();
+  private fontTickets = new Map<string, FontTicket>();
+  private fontGate = new Map<string, GateState>();
   private scrambleCache = new Map<string, Promise<ScrambleResult>>();
   private srcFontPromise: Promise<any> | null = null;
 
@@ -215,8 +443,21 @@ export class FontObfuscator {
     this.fontUrl = options.fontUrl;
     this.fontRoutePrefix = options.fontRoutePrefix ?? DEFAULT_FONT_ROUTE_PREFIX;
     this.sessionTtlMs = options.sessionTtlMs ?? DEFAULT_SESSION_TTL_MS;
+    this.fontUrlTtlMs = Math.min(this.sessionTtlMs, DEFAULT_FONT_URL_TTL_MS);
     this.alphabet = options.alphabet ?? defaultAlphabet();
     this.devMode = options.devMode ?? false;
+    this.hmacSecret = crypto.getRandomValues(new Uint8Array(32));
+    const keyMaterial = this.hmacSecret.buffer.slice(
+      this.hmacSecret.byteOffset,
+      this.hmacSecret.byteOffset + this.hmacSecret.byteLength,
+    ) as ArrayBuffer;
+    this.hmacKeyPromise = crypto.subtle.importKey(
+      "raw",
+      keyMaterial,
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
   }
 
   async maybeHandleFontRequest(req: Request): Promise<Response | null> {
@@ -224,18 +465,54 @@ export class FontObfuscator {
     const prefix = `${this.fontRoutePrefix}/`;
     if (!url.pathname.startsWith(prefix)) return null;
 
+    const gateKey = this.getGateKey(req);
+    const gateErr = this.checkAndTouchGate(gateKey);
+    if (gateErr) return gateErr;
+
     const token = url.pathname.slice(prefix.length);
     if (!/^[0-9a-f-]{36}$/.test(token)) {
+      this.recordGateFailure(gateKey);
       return new Response("Not Found", { status: 404 });
     }
 
-    const session = this.getSession(token);
-    if (!session) {
+    const expRaw = url.searchParams.get("exp");
+    const sig = url.searchParams.get("sig");
+    const exp = expRaw ? Number(expRaw) : NaN;
+    if (!Number.isFinite(exp) || exp <= 0 || !sig) {
+      this.recordGateFailure(gateKey);
+      return new Response("Forbidden", { status: 403 });
+    }
+
+    const ticket = this.getFontTicket(token);
+    if (!ticket) {
+      this.recordGateFailure(gateKey);
       return new Response("Session expired", { status: 410 });
     }
 
-    const alphabet = session.candidateAlphabet ?? this.alphabet;
-    const { fontBytes } = await this.scrambleFont(session.seed, alphabet);
+    if (!/^[0-9a-f]{64}$/i.test(sig)) {
+      this.recordGateFailure(gateKey);
+      return new Response("Forbidden", { status: 403 });
+    }
+
+    const expectedSig = await this.signTicket(token, exp, ticket.clientFingerprint);
+    if (exp !== ticket.expiry || !timingSafeEqual(sig.toLowerCase(), expectedSig)) {
+      this.recordGateFailure(gateKey);
+      return new Response("Forbidden", { status: 403 });
+    }
+    if (ticket.clientFingerprint && ticket.clientFingerprint !== this.getClientFingerprint(req)) {
+      this.recordGateFailure(gateKey);
+      return new Response("Forbidden", { status: 403 });
+    }
+    if (ticket.used) {
+      this.recordGateFailure(gateKey);
+      return new Response("Gone", { status: 410 });
+    }
+
+    ticket.used = true;
+    this.clearGateFailure(gateKey);
+
+    const alphabet = ticket.candidateAlphabet ?? this.alphabet;
+    const { fontBytes } = await this.scrambleFont(ticket.seed, alphabet);
     return new Response(fontBytes as unknown as BodyInit, {
       headers: {
         "content-type": "font/ttf",
@@ -248,14 +525,22 @@ export class FontObfuscator {
     html: string,
     options: ObfuscateHtmlOptions,
   ): Promise<string> {
-    const selectors = options.selectors.filter((s) => s.trim().length > 0);
+    const selectors = normalizeSelectors(options.selectors);
     if (selectors.length === 0) return html;
 
-    const token = this.createSession();
-    const session = this.getSession(token)!;
+    const pageKey = normalizePageKey(options.pageKey);
+    const selectorKey = normalizeSelectorKey(selectors);
+    const selectorHash = fnv1a32(`${pageKey}|${selectorKey}`);
+    const scopedSeed = (secureRandU32() ^ selectorHash) >>> 0;
     const candidateAlphabet = this.buildCandidateAlphabet(html);
-    session.candidateAlphabet = candidateAlphabet;
-    const { mapping } = await this.scrambleFont(session.seed, candidateAlphabet);
+    const ticket = await this.createFontTicket({
+      seed: scopedSeed,
+      pageKey,
+      selectorKey,
+      candidateAlphabet,
+      clientFingerprint: normalizeClientFingerprint(options.clientFingerprint),
+    });
+    const { mapping } = await this.scrambleFont(ticket.seed, candidateAlphabet);
 
     const devMode = options.devMode ?? this.devMode;
     let unmappedChars: Set<string> | null = null;
@@ -265,13 +550,14 @@ export class FontObfuscator {
 
     const xorSeed = secureRandU32();
     const encoded = encodeMapping(mapping, xorSeed);
-    const family = options.fontFamilyName ?? `Obf_${token.slice(0, 8)}`;
+    const family = options.fontFamilyName ?? `Obf_${ticket.token.slice(0, 8)}`;
     const observeMutations = options.observeMutations ?? true;
+    const fontUrl = `${this.fontRoutePrefix}/${ticket.token}?exp=${ticket.expiry}&sig=${ticket.sig}`;
 
-    const style = `<style>@font-face{font-family:${JSON.stringify(family)};src:url("${this.fontRoutePrefix}/${token}") format("truetype");}${selectors.join(",")}{font-family:${JSON.stringify(family)},sans-serif !important;}</style>`;
+    const style = `<style>@font-face{font-family:${JSON.stringify(family)};src:url("${fontUrl}") format("truetype");}${selectors.join(",")}{font-family:${JSON.stringify(family)},sans-serif !important;}</style>`;
     const script = `<script>${buildClientScript(selectors, encoded, xorSeed, observeMutations)}</script>`;
 
-    let out = html;
+    let out = obfuscateSelectorScopeHtml(html, selectors, mapping);
     out = injectBeforeEndTag(out, "head", style);
     out = injectBeforeEndTag(out, "body", script);
 
@@ -391,28 +677,125 @@ export class FontObfuscator {
     return style + div;
   }
 
-  private createSession(): string {
+  private async createFontTicket(input: {
+    seed: number;
+    pageKey: string;
+    selectorKey: string;
+    candidateAlphabet: string[];
+    clientFingerprint?: string;
+  }): Promise<FontTicket & { sig: string }> {
     const now = Date.now();
-    for (const [k, v] of this.sessions) {
-      if (v.expiry < now) this.sessions.delete(k);
-    }
+    this.cleanupState(now);
 
     const token = crypto.randomUUID();
-    this.sessions.set(token, {
-      seed: secureRandU32(),
-      expiry: now + this.sessionTtlMs,
-    });
-    return token;
+    const expiry = now + this.fontUrlTtlMs;
+    const ticket: FontTicket = {
+      seed: input.seed,
+      token,
+      expiry,
+      used: false,
+      pageKey: input.pageKey,
+      selectorKey: input.selectorKey,
+      candidateAlphabet: input.candidateAlphabet,
+      clientFingerprint: input.clientFingerprint,
+    };
+
+    this.fontTickets.set(token, ticket);
+    const sig = await this.signTicket(token, expiry, ticket.clientFingerprint);
+    return { ...ticket, sig };
   }
 
-  private getSession(token: string): SessionEntry | null {
-    const s = this.sessions.get(token);
-    if (!s) return null;
-    if (s.expiry < Date.now()) {
-      this.sessions.delete(token);
+  private getFontTicket(token: string): FontTicket | null {
+    const t = this.fontTickets.get(token);
+    if (!t) return null;
+    if (t.expiry < Date.now()) {
+      this.fontTickets.delete(token);
       return null;
     }
-    return s;
+    return t;
+  }
+
+  private async signTicket(token: string, expiry: number, clientFingerprint?: string): Promise<string> {
+    const fp = clientFingerprint ?? "-";
+    const key = await this.hmacKeyPromise;
+    const payload = new TextEncoder().encode(`${token}|${expiry}|${fp}`);
+    const sig = await crypto.subtle.sign("HMAC", key, payload);
+    return toHex(new Uint8Array(sig));
+  }
+
+  private getClientFingerprint(req: Request): string {
+    const headers = req.headers;
+    const ua = headers.get("user-agent") ?? "";
+    const ip = (headers.get("x-forwarded-for") ?? headers.get("cf-connecting-ip") ?? "")
+      .split(",")[0]
+      .trim();
+    return `${ip}|${ua}`;
+  }
+
+  private getGateKey(req: Request): string {
+    const fp = this.getClientFingerprint(req);
+    return toHex32(fnv1a32(fp));
+  }
+
+  private checkAndTouchGate(key: string): Response | null {
+    const now = Date.now();
+    const state = this.fontGate.get(key) ?? {
+      count: 0,
+      resetAt: now + DEFAULT_FONT_GATE_WINDOW_MS,
+      failures: 0,
+      blockedUntil: 0,
+    };
+
+    if (state.blockedUntil > now) {
+      this.fontGate.set(key, state);
+      return new Response("Too Many Requests", { status: 429 });
+    }
+
+    if (state.resetAt <= now) {
+      state.count = 0;
+      state.resetAt = now + DEFAULT_FONT_GATE_WINDOW_MS;
+    }
+
+    state.count += 1;
+    this.fontGate.set(key, state);
+    if (state.count > DEFAULT_FONT_GATE_MAX_PER_WINDOW) {
+      return new Response("Too Many Requests", { status: 429 });
+    }
+
+    return null;
+  }
+
+  private recordGateFailure(key: string): void {
+    const now = Date.now();
+    const state = this.fontGate.get(key) ?? {
+      count: 0,
+      resetAt: now + DEFAULT_FONT_GATE_WINDOW_MS,
+      failures: 0,
+      blockedUntil: 0,
+    };
+    state.failures += 1;
+    if (state.failures >= DEFAULT_FONT_GATE_BLOCK_AFTER_FAILURES) {
+      state.blockedUntil = now + DEFAULT_FONT_GATE_BLOCK_MS;
+      state.failures = 0;
+    }
+    this.fontGate.set(key, state);
+  }
+
+  private clearGateFailure(key: string): void {
+    const state = this.fontGate.get(key);
+    if (!state) return;
+    state.failures = 0;
+    this.fontGate.set(key, state);
+  }
+
+  private cleanupState(now: number): void {
+    for (const [token, ticket] of this.fontTickets) {
+      if (ticket.expiry < now || ticket.used) this.fontTickets.delete(token);
+    }
+    for (const [k, gate] of this.fontGate) {
+      const stale = gate.resetAt + DEFAULT_FONT_GATE_BLOCK_MS < now && gate.blockedUntil < now;
+      if (stale) this.fontGate.delete(k);
+    }
   }
 
   private loadSourceFont(): Promise<any> {

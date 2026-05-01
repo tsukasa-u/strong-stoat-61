@@ -9,10 +9,19 @@ function shouldSkipPath(pathname: string, patterns: RegExp[] | undefined): boole
   return patterns.some((p) => p.test(pathname));
 }
 
+function requestFingerprint(req: Request): string {
+  const ua = req.headers.get("user-agent") ?? "";
+  const ip = (req.headers.get("x-forwarded-for") ?? req.headers.get("cf-connecting-ip") ?? "")
+    .split(",")[0]
+    .trim();
+  return `${ip}|${ua}`;
+}
+
 export async function obfuscateHtmlResponse(
   response: Response,
   obfuscator: FontObfuscator,
   options: AdapterObfuscationOptions,
+  req?: Request,
 ): Promise<Response> {
   const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
   if (!contentType.includes("text/html")) {
@@ -24,6 +33,8 @@ export async function obfuscateHtmlResponse(
     selectors: options.selectors,
     fontFamilyName: options.fontFamilyName,
     observeMutations: options.observeMutations,
+    pageKey: req ? new URL(req.url).pathname : "/",
+    clientFingerprint: req ? requestFingerprint(req) : undefined,
   });
 
   const headers = new Headers(response.headers);
@@ -48,7 +59,7 @@ export function withFetchObfuscation<Args extends unknown[]>(
     }
 
     const response = await handler(req, ...args);
-    return obfuscateHtmlResponse(response, obfuscator, options);
+    return obfuscateHtmlResponse(response, obfuscator, options, req);
   };
 }
 
@@ -79,6 +90,6 @@ export function withSvelteKitHandleObfuscation(
     }
 
     const response = await handle(input);
-    return obfuscateHtmlResponse(response, obfuscator, options);
+    return obfuscateHtmlResponse(response, obfuscator, options, input.event.request);
   };
 }

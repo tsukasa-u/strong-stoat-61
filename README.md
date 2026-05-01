@@ -68,6 +68,14 @@ Recommended operational rules:
 3. Obfuscate only sensitive areas (`selectors` minimum scope)
 4. Avoid exposing plain text via API payloads or embedded JSON
 5. Add bot/rate protections (WAF, rate limit, behavior-based detection)
+6. Trust `x-forwarded-for` only behind a trusted reverse proxy/CDN; otherwise treat it as user-controlled input
+
+Current implementation hardening:
+
+- One-time font ticket URLs
+- Short-lived font URL expiry
+- HMAC-SHA256 ticket signatures
+- Basic selector input validation for inline injection safety
 
 ## Core API
 
@@ -83,6 +91,8 @@ Recommended operational rules:
 - `selectors: string[]` (required)
 - `fontFamilyName?: string`
 - `observeMutations?: boolean` (default `true`)
+- `pageKey?: string`
+- `clientFingerprint?: string`
 
 ### `await obfuscator.maybeHandleFontRequest(request)`
 
@@ -197,6 +207,8 @@ Current test coverage includes:
 - Adapter behavior (Next/Remix/Astro/Hono/SvelteKit)
 - HTML-only injection guarantee
 - Invalid token handling
+- Unsafe selector rejection
+- Strong signature format (`sig` as 64-hex)
 
 ## Runtime Choice: Node/pnpm
 
