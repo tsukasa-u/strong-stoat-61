@@ -1,0 +1,55 @@
+{
+  "name": "font-obfuscator",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README.ja.md"
+  ],
+  "scripts": {
+    "dev": "tsx main.ts",
+    "build": "tsup lib/index.ts --format esm --dts --clean",
+    "prepack": "pnpm build",
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "example:fetch": "tsx examples/fetch/main.ts",
+    "example:fetch:jsx": "tsx examples/fetch/jsxExample.jsx",
+    "example:fetch:tsx": "tsx examples/fetch/main.tsx",
+    "example:hono": "tsx examples/hono/main.ts",
+    "example:next": "tsx examples/next/main.ts",
+    "example:remix": "tsx examples/remix/main.ts",
+    "example:astro": "tsx examples/astro/main.ts",
+    "example:sveltekit": "tsx examples/sveltekit/main.ts",
+    "example:react": "tsx examples/react/main.tsx",
+    "example:vue": "tsx examples/vue/main.ts",
+    "example:solid": "tsx examples/solid/main.tsx",
+    "verify:examples": "bash scripts/verify_examples.sh"
+  },
+  "dependencies": {
+    "@vue/server-renderer": "^3.5.13",
+    "hono": "^4.6.0",
+    "opentype.js": "^1.3.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "solid-js": "^1.9.0",
+    "vue": "^3.5.13",
+    "wawoff2": "^2.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

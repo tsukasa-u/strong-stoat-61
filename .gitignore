@@ -1,2 +1,34 @@
-C++
-rust/target
+# Node / pnpm
+node_modules/
+dist/
+
+# Build outputs
+.next/
+.nuxt/
+.output/
+.astro/
+.svelte-kit/
+.vinxi/
+.nitro/
+build/
+out/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Rust
+rust/target/
+
+# C++
+C++/
+
+# Editor
+.DS_Store
+.vscode/settings.json
