@@ -1,17 +1,12 @@
-<script setup>
-import { ref } from 'vue';
-const count = ref(0);
-</script>
-
 <template>
   <main style="min-height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center">
     <h1>Nuxt example</h1>
     <p class="secret">このテキストは難読化されます。Hello World</p>
     <div>
-      <button @click="count++">Count</button>
-      <button @click="count = 0">Reset</button>
+      <button onclick="if(c<_pre.length-1)c++;el.textContent=_pre[c]">Count</button>
+      <button onclick="c=0;el.textContent=_pre[0]">Reset</button>
     </div>
-    <p class="secret">{{ count }}</p>
+    <p id="cnt" class="secret">0</p>
   </main>
 </template>
 

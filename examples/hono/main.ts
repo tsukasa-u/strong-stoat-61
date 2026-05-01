@@ -42,6 +42,7 @@ app.get("/", (c) => {
 
 const wrappedFetch = withHonoObfuscation(app.fetch.bind(app), obfuscator, {
   selectors: [".secret"],
+  sendClientMapping: false,
 });
 
 console.log("[hono-example] http://localhost:8001/");

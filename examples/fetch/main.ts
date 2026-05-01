@@ -43,6 +43,7 @@ function baseHandler(_req: Request): Response {
 
 const handler = withFetchObfuscation(baseHandler, obfuscator, {
   selectors: [".secret"],
+  sendClientMapping: false,
 });
 
 console.log("[fetch-example] http://localhost:8003/");

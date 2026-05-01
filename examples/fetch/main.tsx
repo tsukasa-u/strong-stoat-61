@@ -97,6 +97,7 @@ function baseHandler(_req: Request): Response {
 
 const handler = withFetchObfuscation(baseHandler, obfuscator, {
   selectors: [".secret"],
+  sendClientMapping: false,
 });
 
 console.log("[fetch-tsx-example] http://localhost:8015/");

@@ -1,11 +1,16 @@
 import { createMiddleware } from "@solidjs/start/middleware";
-import { FontObfuscator } from "font-obfuscator";
+import { FontObfuscator, encodeText, type PrecomputedMapping } from "../../../lib/index.ts";
 
 const obfuscator = new FontObfuscator({
   fontUrl:
     "https://raw.githubusercontent.com/google/fonts/main/ofl/notosansjp/NotoSansJP%5Bwght%5D.ttf",
   fontRoutePrefix: "/_obf/font",
 });
+
+const SELECTORS = [".secret"];
+
+// Kick off precomputation at module load (server startup).
+const _mapping: Promise<PrecomputedMapping> = obfuscator.precomputeMapping();
 
 async function readStream(stream: ReadableStream<Uint8Array>): Promise<string> {
   const reader = stream.getReader();
@@ -33,7 +38,7 @@ export default createMiddleware({
     },
   ],
   onBeforeResponse: [
-    async (_event, response) => {
+    async (event, response) => {
       const body = response.body;
       let html: string;
       if (typeof body === "string") {
@@ -48,9 +53,23 @@ export default createMiddleware({
         return;
       }
       if (!html.includes("<html")) return;
-      response.body = await obfuscator.obfuscateHtml(html, {
-        selectors: [".secret"],
+
+      const pm = await _mapping;
+      const ip = (event.request.headers.get("x-forwarded-for") ?? "").split(",")[0].trim();
+      const ua = event.request.headers.get("user-agent") ?? "";
+
+      let result = await obfuscator.serveWithMapping(html, SELECTORS, pm, {
+        pageKey: new URL(event.request.url).pathname,
+        clientFingerprint: `${ip}|${ua}`,
+        sendClientMapping: false,
       });
+
+      // Inject pre-encoded counter values so COUNT stays obfuscated client-side.
+      const preArr = Array.from({ length: 100 }, (_, i) => encodeText(String(i), pm.mapping));
+      const preScript = `<script>var _pre=${JSON.stringify(preArr)},c=0,el=document.getElementById('cnt')<\/script>`;
+      result = result.replace("</body>", `${preScript}</body>`);
+
+      response.body = result;
     },
   ],
 });

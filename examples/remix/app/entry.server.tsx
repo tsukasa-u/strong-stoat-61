@@ -3,7 +3,7 @@ import { createReadableStreamFromReadable } from "@remix-run/node";
 import { RemixServer } from "@remix-run/react";
 import { renderToPipeableStream } from "react-dom/server";
 import { PassThrough } from "node:stream";
-import { FontObfuscator, withRemixRequestHandlerObfuscation } from "font-obfuscator";
+import { FontObfuscator, withRemixRequestHandlerObfuscation } from "../../../lib/index.ts";
 
 const FONT_URL =
   "https://raw.githubusercontent.com/google/fonts/main/ofl/notosansjp/NotoSansJP%5Bwght%5D.ttf";
@@ -43,4 +43,5 @@ async function baseHandleRequest(
 export default withRemixRequestHandlerObfuscation(baseHandleRequest, obfuscator, {
   selectors: [".secret"],
   skipPathPatterns: [/^\/build\//, /^\/_data/],
+  sendClientMapping: false,
 });

@@ -1,4 +1,4 @@
-import { FontObfuscator } from "./lib/index.ts";
+import { FontObfuscator, type PrecomputedPage } from "./lib/index.ts";
 
 const obfuscator = new FontObfuscator({
   fontUrl:
@@ -1183,6 +1183,21 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
 </html>`;
 }
 
+// Precompute PUA-encoded HTML once at startup.
+// The fixed mapping (derived from `page.seed`) stays constant for the
+// server's lifetime; only the per-request font ticket changes.
+let precomputedPage: PrecomputedPage | null = null;
+
+async function getPrecomputedPage(): Promise<PrecomputedPage> {
+  if (!precomputedPage) {
+    precomputedPage = await obfuscator.precomputeHtml(basePageHtml(), [
+      ".obf-target",
+      "#secret",
+    ]);
+  }
+  return precomputedPage;
+}
+
 async function handler(req: Request): Promise<Response> {
   const fontResponse = await obfuscator.maybeHandleFontRequest(req);
   if (fontResponse) return fontResponse;
@@ -1192,8 +1207,8 @@ async function handler(req: Request): Promise<Response> {
     return new Response("Not Found", { status: 404 });
   }
 
-  const html = await obfuscator.obfuscateHtml(basePageHtml(), {
-    selectors: [".obf-target", "#secret"],
+  const page = await getPrecomputedPage();
+  const html = await obfuscator.servePrecomputed(page, {
     pageKey: url.pathname,
     clientFingerprint: `${(req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim()}|${req.headers.get("user-agent") ?? ""}`,
   });

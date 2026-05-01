@@ -7,7 +7,7 @@
  */
 
 import { renderToStaticMarkup } from "react-dom/server";
-import { FontObfuscator, withFetchObfuscation } from "../../lib/index.ts";
+import { FontObfuscator, encodeText, type PrecomputedMapping } from "../../lib/index.ts";
 import { serveFetch } from "../../lib/nodeServer.ts";
 
 const FONT_URL =
@@ -17,6 +17,9 @@ const obfuscator = new FontObfuscator({
   fontUrl: FONT_URL,
   fontRoutePrefix: "/_obf/font",
 });
+
+const SELECTORS = [".secret"];
+const _mapping: Promise<PrecomputedMapping> = obfuscator.precomputeMapping();
 
 function App() {
   return (
@@ -30,26 +33,38 @@ function App() {
         <h1>React SSR example</h1>
         <p className="secret">このテキストは難読化されます。Hello World</p>
         <div>
-          <button id="btn-count">Count</button>
-          <button id="btn-reset">Reset</button>
+          <button id="btn-count" onclick="if(c<_pre.length-1)c++;el.textContent=_pre[c]">Count</button>
+          <button id="btn-reset" onclick="c=0;el.textContent=_pre[0]">Reset</button>
         </div>
         <p id="cnt" className="secret">0</p>
-        <script dangerouslySetInnerHTML={{ __html: "var c=0,el=document.getElementById('cnt');document.getElementById('btn-count').onclick=function(){c++;el.textContent=c};document.getElementById('btn-reset').onclick=function(){c=0;el.textContent=0}" }} />
       </body>
     </html>
   );
 }
 
-function baseHandler(_req: Request): Response {
-  const html = "<!doctype html>" + renderToStaticMarkup(<App />);
-  return new Response(html, {
-    headers: { "content-type": "text/html; charset=utf-8" },
+async function baseHandler(req: Request): Promise<Response> {
+  const pm = await _mapping;
+  const preArr = Array.from({ length: 100 }, (_, i) => encodeText(String(i), pm.mapping));
+  const preScript = `<script>var _pre=${JSON.stringify(preArr)},c=0,el=document.getElementById('cnt')<\/script>`;
+
+  const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim();
+  const ua = req.headers.get("user-agent") ?? "";
+
+  const rawHtml = "<!doctype html>" + renderToStaticMarkup(<App />);
+  let html = await obfuscator.serveWithMapping(rawHtml, SELECTORS, pm, {
+    pageKey: new URL(req.url).pathname,
+    clientFingerprint: `${ip}|${ua}`,
+    sendClientMapping: false,
   });
+  html = html.replace("</body>", `${preScript}</body>`);
+  return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
 }
 
-const handler = withFetchObfuscation(baseHandler, obfuscator, {
-  selectors: [".secret"],
-});
+const handler = async (req: Request): Promise<Response> => {
+  const fontRes = await obfuscator.maybeHandleFontRequest(req);
+  if (fontRes) return fontRes;
+  return baseHandler(req);
+};
 
 console.log("[react-example] http://localhost:8020/");
 serveFetch(handler, 8020);

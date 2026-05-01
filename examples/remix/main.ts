@@ -34,6 +34,7 @@ function baseHandler(_req: Request): Response {
 const handler = withRemixRequestHandlerObfuscation(baseHandler, obfuscator, {
   selectors: [".secret"],
   skipPathPatterns: [/^\/build\//, /^\/_data\//],
+  sendClientMapping: false,
 });
 
 console.log("[remix-adapter-example] http://localhost:8011/");

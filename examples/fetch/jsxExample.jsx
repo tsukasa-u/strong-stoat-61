@@ -80,6 +80,7 @@ function baseHandler(_req) {
 
 const handler = withFetchObfuscation(baseHandler, obfuscator, {
   selectors: [".secret"],
+  sendClientMapping: false,
 });
 
 console.log("[fetch-jsx-example] http://localhost:8014/");

@@ -1,5 +1,29 @@
 <script>
-  let count = $state(0);
+  let c = 0;
+
+  function readPre() {
+    const pre = globalThis._pre;
+    return Array.isArray(pre) ? pre : [];
+  }
+
+  function applyCount() {
+    const el = document.getElementById("cnt");
+    const pre = readPre();
+    if (!el || pre.length === 0) return;
+    el.textContent = pre[c] ?? pre[0];
+  }
+
+  function onCount() {
+    const pre = readPre();
+    if (pre.length === 0) return;
+    if (c < pre.length - 1) c++;
+    applyCount();
+  }
+
+  function onReset() {
+    c = 0;
+    applyCount();
+  }
 </script>
 
 <svelte:head>
@@ -16,8 +40,10 @@
   <h1>SvelteKit example</h1>
   <p class="secret">このテキストは難読化されます。Hello World</p>
   <div>
-    <button onclick={() => count++}>Count</button>
-    <button onclick={() => count = 0}>Reset</button>
+    <!-- svelte-ignore a11y_consider_explicit_label -->
+    <button on:click={onCount}>Count</button>
+    <!-- svelte-ignore a11y_consider_explicit_label -->
+    <button on:click={onReset}>Reset</button>
   </div>
-  <p class="secret">{count}</p>
+  <p id="cnt" class="secret">0</p>
 </div>

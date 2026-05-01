@@ -33,6 +33,7 @@ export async function obfuscateHtmlResponse(
     selectors: options.selectors,
     fontFamilyName: options.fontFamilyName,
     observeMutations: options.observeMutations,
+    sendClientMapping: options.sendClientMapping,
     pageKey: req ? new URL(req.url).pathname : "/",
     clientFingerprint: req ? requestFingerprint(req) : undefined,
   });

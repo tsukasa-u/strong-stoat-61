@@ -1,5 +1,5 @@
 import { getRequestURL, setResponseHeader } from 'h3';
-import { FontObfuscator } from 'font-obfuscator';
+import { FontObfuscator } from '../../../../lib/index.ts';
 
 const obfuscator = new FontObfuscator({
   fontUrl:

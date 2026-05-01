@@ -28,6 +28,7 @@ const handle = withSvelteKitHandleObfuscation(
   {
     selectors: [".secret"],
     skipPathPatterns: [/^\/_app\//],
+    sendClientMapping: false,
   },
 );
 

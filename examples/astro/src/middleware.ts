@@ -1,5 +1,5 @@
 import type { MiddlewareHandler } from "astro";
-import { FontObfuscator, obfuscateHtmlResponse } from "font-obfuscator";
+import { FontObfuscator, obfuscateHtmlResponse } from "../../../lib/index.ts";
 
 const obfuscator = new FontObfuscator({
   fontUrl:
@@ -22,5 +22,6 @@ export const onRequest: MiddlewareHandler = async ({ request }, next) => {
   const response = await next();
   return obfuscateHtmlResponse(response, obfuscator, {
     selectors: [".secret"],
+    sendClientMapping: false,
   });
 };

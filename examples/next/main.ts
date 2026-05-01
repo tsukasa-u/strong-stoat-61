@@ -34,6 +34,7 @@ function baseHandler(_req: Request): Response {
 const handler = withNextRouteHandlerObfuscation(baseHandler, obfuscator, {
   selectors: [".secret"],
   skipPathPatterns: [/^\/_next\//],
+  sendClientMapping: false,
 });
 
 console.log("[next-adapter-example] http://localhost:8010/");

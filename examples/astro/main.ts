@@ -34,6 +34,7 @@ function baseHandler(_req: Request): Response {
 const handler = withAstroEndpointObfuscation(baseHandler, obfuscator, {
   selectors: [".secret"],
   skipPathPatterns: [/^\/_astro\//],
+  sendClientMapping: false,
 });
 
 console.log("[astro-adapter-example] http://localhost:8012/");

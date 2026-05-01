@@ -19,6 +19,63 @@ export interface ObfuscateHtmlOptions {
   devMode?: boolean;
   pageKey?: string;
   clientFingerprint?: string;
+  /**
+   * When false, the client-side mapping script (_enc/_seed) is omitted.
+   * Static text is still obfuscated server-side; use pre-encoded value arrays
+   * for any dynamic text (e.g. counters).
+   * @default true
+   */
+  sendClientMapping?: boolean;
+}
+
+/**
+ * The result of {@link FontObfuscator.precomputeHtml}.
+ * Holds the PUA-encoded HTML and the parameters needed to inject a fresh
+ * per-request font ticket via {@link FontObfuscator.servePrecomputed}.
+ */
+export interface PrecomputedPage {
+  /** HTML with protected elements already PUA-encoded at startup time. */
+  puaHtml: string;
+  /** The seed used to build the mapping (fixed for the server lifetime). */
+  seed: number;
+  /** Characters included in the scrambled font. */
+  candidateAlphabet: string[];
+  /** char → PUA codepoint mapping derived from seed. */
+  mapping: Record<string, number>;
+  /** Normalised selectors that were obfuscated. */
+  selectors: string[];
+}
+
+export interface ServePrecomputedOptions {
+  pageKey?: string;
+  clientFingerprint?: string;
+  /** @default true */
+  observeMutations?: boolean;
+  fontFamilyName?: string;
+  /**
+   * When false, the client-side mapping script (_enc/_seed) is omitted.
+   * Static text is still obfuscated server-side; use pre-encoded value arrays
+   * for any dynamic text (e.g. counters).
+   * @default true
+   */
+  sendClientMapping?: boolean;
+}
+
+/**
+ * A precomputed seed + character mapping that is stable across requests.
+ * Obtain via {@link FontObfuscator.precomputeMapping} at server startup, then
+ * pass to {@link FontObfuscator.serveWithMapping} on every SSR request.
+ *
+ * Use this instead of {@link PrecomputedPage} when the HTML body is generated
+ * dynamically per-request (e.g. Nuxt, SolidStart) and cannot be pre-encoded.
+ */
+export interface PrecomputedMapping {
+  /** Random seed used to shuffle PUA assignments (fixed for server lifetime). */
+  seed: number;
+  /** char → PUA codepoint, derived from `seed`. */
+  mapping: Record<string, number>;
+  /** The character set passed to the font scrambler. */
+  candidateAlphabet: string[];
 }
 
 interface FontTicket {
@@ -279,6 +336,19 @@ function obfuscateTextWithMapping(input: string, mapping: Record<string, number>
   return out;
 }
 
+/**
+ * Encode a plain-text string to PUA characters using a precomputed mapping.
+ * Use this server-side to pre-encode dynamic values (e.g. counter range) so
+ * that the client never receives the raw character → PUA mapping.
+ *
+ * @example
+ * // Pre-encode integers 0–99 at startup
+ * const _pre = Array.from({ length: 100 }, (_, i) => encodeText(String(i), page.mapping));
+ */
+export function encodeText(text: string, mapping: Record<string, number>): string {
+  return obfuscateTextWithMapping(text, mapping);
+}
+
 interface SelectorSets {
   ids: Set<string>;
   classes: Set<string>;
@@ -521,6 +591,139 @@ export class FontObfuscator {
     });
   }
 
+  /**
+   * Encode all text inside `selectors` to PUA characters at startup time.
+   * Store the returned {@link PrecomputedPage} at module scope and pass it
+   * to {@link servePrecomputed} on every request to inject only a fresh
+   * per-request font ticket, avoiding repeated text-encoding work.
+   */
+  async precomputeHtml(html: string, selectors: string[]): Promise<PrecomputedPage> {
+    const normalizedSelectors = normalizeSelectors(selectors);
+    if (normalizedSelectors.length === 0) {
+      return { puaHtml: html, seed: 0, candidateAlphabet: [], mapping: {}, selectors: [] };
+    }
+    const candidateAlphabet = this.buildCandidateAlphabet(html);
+    const seed = secureRandU32();
+    const { mapping } = await this.scrambleFont(seed, candidateAlphabet);
+    const puaHtml = obfuscateSelectorScopeHtml(html, normalizedSelectors, mapping);
+    return { puaHtml, seed, candidateAlphabet, mapping, selectors: normalizedSelectors };
+  }
+
+  /**
+   * Precompute a stable seed + character mapping **without** needing the final
+   * HTML body. Use this when HTML is generated dynamically per-request (e.g.
+   * Nuxt, SolidStart). Call once at server startup and cache the result.
+   *
+   * If `hintHtml` is supplied the characters found in it are added to the
+   * default alphabet so that all common characters are guaranteed to be mapped.
+   */
+  async precomputeMapping(hintHtml?: string): Promise<PrecomputedMapping> {
+    const candidateAlphabet = hintHtml
+      ? this.buildCandidateAlphabet(hintHtml)
+      : [...this.alphabet];
+    const seed = secureRandU32();
+    const { mapping } = await this.scrambleFont(seed, candidateAlphabet);
+    return { seed, mapping, candidateAlphabet };
+  }
+
+  /**
+   * Per-request companion to {@link precomputeMapping}.
+   * Encodes `html` with the precomputed mapping, then injects a fresh
+   * one-time font ticket (`<style>` + `<script>`) for this request.
+   *
+   * Usage (Nuxt / SolidStart Nitro plugin):
+   * ```ts
+   * // Once at startup:
+   * const _mapping = obfuscator.precomputeMapping();
+   *
+   * // In render:response hook:
+   * const pm = await _mapping;
+   * response.body = await obfuscator.serveWithMapping(response.body, selectors, pm, {
+   *   pageKey: event.path,
+   *   clientFingerprint: `${ip}|${ua}`,
+   * });
+   * ```
+   */
+  async serveWithMapping(
+    html: string,
+    selectors: string[],
+    precomputed: PrecomputedMapping,
+    options: ServePrecomputedOptions = {},
+  ): Promise<string> {
+    const normalizedSelectors = normalizeSelectors(selectors);
+    if (normalizedSelectors.length === 0) return html;
+
+    const { seed, mapping, candidateAlphabet } = precomputed;
+    const pageKey = normalizePageKey(options.pageKey);
+    const selectorKey = normalizeSelectorKey(normalizedSelectors);
+
+    const ticket = await this.createFontTicket({
+      seed,
+      pageKey,
+      selectorKey,
+      candidateAlphabet,
+      clientFingerprint: normalizeClientFingerprint(options.clientFingerprint),
+    });
+
+    const xorSeed = secureRandU32();
+    const encoded = encodeMapping(mapping, xorSeed);
+    const family = options.fontFamilyName ?? `Obf_${ticket.token.slice(0, 8)}`;
+    const observeMutations = options.observeMutations ?? true;
+    const fontUrl = `${this.fontRoutePrefix}/${ticket.token}?exp=${ticket.expiry}&sig=${ticket.sig}`;
+
+    const sendClientMapping = options.sendClientMapping !== false;
+    const style = `<style>@font-face{font-family:${JSON.stringify(family)};src:url("${fontUrl}") format("truetype");}${normalizedSelectors.join(",")}{font-family:${JSON.stringify(family)},sans-serif !important;}</style>`;
+    const script = sendClientMapping
+      ? `<script>${buildClientScript(normalizedSelectors, encoded, xorSeed, observeMutations)}</script>`
+      : "";
+
+    let out = obfuscateSelectorScopeHtml(html, normalizedSelectors, mapping);
+    out = injectBeforeEndTag(out, "head", style);
+    if (script) out = injectBeforeEndTag(out, "body", script);
+    return out;
+  }
+
+  /**
+   * Inject a fresh per-request font ticket into a {@link PrecomputedPage}.
+   * The PUA-encoded text is already in `page.puaHtml`; this method only
+   * creates the font URL and injects the `<style>` + `<script>` tags.
+   *
+   * Dynamic text added via MutationObserver is still obfuscated because the
+   * mapping is sent to the client — PUA characters already in the HTML simply
+   * pass through unchanged (they are not in the mapping's key set).
+   */
+  async servePrecomputed(page: PrecomputedPage, options: ServePrecomputedOptions = {}): Promise<string> {
+    const { puaHtml, seed, candidateAlphabet, mapping, selectors } = page;
+    if (selectors.length === 0) return puaHtml;
+
+    const pageKey = normalizePageKey(options.pageKey);
+    const selectorKey = normalizeSelectorKey(selectors);
+
+    const ticket = await this.createFontTicket({
+      seed,
+      pageKey,
+      selectorKey,
+      candidateAlphabet,
+      clientFingerprint: normalizeClientFingerprint(options.clientFingerprint),
+    });
+
+    const xorSeed = secureRandU32();
+    const encoded = encodeMapping(mapping, xorSeed);
+    const family = options.fontFamilyName ?? `Obf_${ticket.token.slice(0, 8)}`;
+    const observeMutations = options.observeMutations ?? true;
+    const fontUrl = `${this.fontRoutePrefix}/${ticket.token}?exp=${ticket.expiry}&sig=${ticket.sig}`;
+
+    const sendClientMapping = options.sendClientMapping !== false;
+    const style = `<style>@font-face{font-family:${JSON.stringify(family)};src:url("${fontUrl}") format("truetype");}${selectors.join(",")}{font-family:${JSON.stringify(family)},sans-serif !important;}</style>`;
+    const script = sendClientMapping
+      ? `<script>${buildClientScript(selectors, encoded, xorSeed, observeMutations)}</script>`
+      : "";
+
+    let out = injectBeforeEndTag(puaHtml, "head", style);
+    if (script) out = injectBeforeEndTag(out, "body", script);
+    return out;
+  }
+
   async obfuscateHtml(
     html: string,
     options: ObfuscateHtmlOptions,
@@ -554,12 +757,15 @@ export class FontObfuscator {
     const observeMutations = options.observeMutations ?? true;
     const fontUrl = `${this.fontRoutePrefix}/${ticket.token}?exp=${ticket.expiry}&sig=${ticket.sig}`;
 
+    const sendClientMapping = options.sendClientMapping !== false;
     const style = `<style>@font-face{font-family:${JSON.stringify(family)};src:url("${fontUrl}") format("truetype");}${selectors.join(",")}{font-family:${JSON.stringify(family)},sans-serif !important;}</style>`;
-    const script = `<script>${buildClientScript(selectors, encoded, xorSeed, observeMutations)}</script>`;
+    const script = sendClientMapping
+      ? `<script>${buildClientScript(selectors, encoded, xorSeed, observeMutations)}</script>`
+      : "";
 
     let out = obfuscateSelectorScopeHtml(html, selectors, mapping);
     out = injectBeforeEndTag(out, "head", style);
-    out = injectBeforeEndTag(out, "body", script);
+    if (script) out = injectBeforeEndTag(out, "body", script);
 
     if (devMode && unmappedChars && unmappedChars.size > 0) {
       const warningHtml = this.buildDevWarningPanel(unmappedChars, selectors);

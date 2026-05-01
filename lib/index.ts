@@ -1,7 +1,11 @@
 export {
   FontObfuscator,
+  encodeText,
   type FontObfuscatorOptions,
   type ObfuscateHtmlOptions,
+  type PrecomputedPage,
+  type PrecomputedMapping,
+  type ServePrecomputedOptions,
 } from "./fontObfuscator.ts";
 
 export {
