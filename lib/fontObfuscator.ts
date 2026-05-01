@@ -226,6 +226,11 @@ function normalizeSelectors(selectors: string[]): string[] {
     if (/[<>{};]/.test(s)) {
       throw new Error(`unsafe selector: ${s}`);
     }
+    // Server-side HTML obfuscation currently supports only simple id/class selectors.
+    // Reject broader CSS selectors to avoid silent no-op obfuscation.
+    if (!/^[.#][A-Za-z0-9_-]+$/.test(s)) {
+      throw new Error(`unsupported selector: ${s}`);
+    }
     out.push(s);
   }
   return out;
@@ -265,7 +270,11 @@ function encodeMapping(mapping: Record<string, number>, xorSeed: number): string
   for (let i = 0; i < raw.length; i++) {
     enc[i] = raw[i] ^ (Math.floor(rng() * 256) & 0xff);
   }
-  return btoa(String.fromCharCode(...enc));
+    // Build binary string without spread operator to avoid call-stack limits
+    // when the mapping is large (up to MAX_MAPPABLE_CHARS * 8 bytes).
+    let binaryStr = "";
+    for (let i = 0; i < enc.length; i++) binaryStr += String.fromCharCode(enc[i]);
+    return btoa(binaryStr);
 }
 
 function buildClientScript(
@@ -454,6 +463,14 @@ function matchesSelectorSets(rawTag: string, sets: SelectorSets): boolean {
   return tokens.some((token) => sets.classes.has(token));
 }
 
+// HTML5 void elements never have children or closing tags.
+// We must NOT push them onto the stack or increment targetDepth,
+// otherwise all subsequent sibling text would be incorrectly obfuscated.
+const HTML_VOID_ELEMENTS = new Set([
+  "area", "base", "br", "col", "embed", "hr", "img", "input",
+  "link", "meta", "param", "source", "track", "wbr",
+]);
+
 function obfuscateSelectorScopeHtml(
   html: string,
   selectors: string[],
@@ -508,7 +525,9 @@ function obfuscateSelectorScopeHtml(
     }
 
     const tagName = parseTagName(rawTag);
-    const selfClose = /\/\s*>$/.test(rawTag);
+    // Treat void elements and explicit self-closing tags as non-container:
+    // do not push them onto the stack so targetDepth is not corrupted.
+    const selfClose = /\/\s*>$/.test(rawTag) || (tagName !== null && HTML_VOID_ELEMENTS.has(tagName));
     const noParseTag = tagName === "script" || tagName === "style" || tagName === "textarea";
     const inTargetScope = targetDepth > 0 || matchesSelectorSets(rawTag, sets);
 
@@ -532,6 +551,16 @@ function injectBeforeEndTag(html: string, tag: string, injection: string): strin
   return html.slice(0, idx) + injection + html.slice(idx);
 }
 
+/**
+ * Produce a CSS string literal (double-quoted) that is safe to embed inside
+ * an HTML `<style>` block.  JSON.stringify provides proper CSS quoting but
+ * does NOT escape `<`, so `</style>` inside the value would prematurely close
+ * the style element.  We additionally replace every `</` with `<\/`.
+ */
+function safeCssStringLiteral(value: string): string {
+  return JSON.stringify(value).replace(/<\//g, "<\\/");
+}
+
 export class FontObfuscator {
   private readonly fontUrl: string;
   private readonly fontRoutePrefix: string;
@@ -550,10 +579,20 @@ export class FontObfuscator {
   private rotatingMappingEntry: { pm: Promise<PrecomputedMapping>; createdAt: number } | null = null;
   private rotatingPageMap = new Map<string, { page: Promise<PrecomputedPage>; createdAt: number }>();
   private readonly scrambleCacheMaxSize = 10;
+  private readonly fontGateMaxSize = 50_000;
+    private readonly fontTicketsMaxSize = 200_000;
 
   constructor(options: FontObfuscatorOptions) {
     this.fontUrl = options.fontUrl;
-    this.fontRoutePrefix = options.fontRoutePrefix ?? DEFAULT_FONT_ROUTE_PREFIX;
+    const prefix = options.fontRoutePrefix ?? DEFAULT_FONT_ROUTE_PREFIX;
+    // Validate fontRoutePrefix to prevent CSS/path injection:
+    // must be an absolute path consisting only of safe URL path characters.
+    if (!/^\/[A-Za-z0-9/_-]*$/.test(prefix)) {
+      throw new Error(
+        `fontRoutePrefix must be an absolute path with only [A-Za-z0-9/_-] characters, got: ${prefix}`,
+      );
+    }
+    this.fontRoutePrefix = prefix;
     this.sessionTtlMs = options.sessionTtlMs ?? DEFAULT_SESSION_TTL_MS;
     this.fontUrlTtlMs = Math.min(this.sessionTtlMs, DEFAULT_FONT_URL_TTL_MS);
     this.alphabet = options.alphabet ?? defaultAlphabet();
@@ -578,6 +617,13 @@ export class FontObfuscator {
     const prefix = `${this.fontRoutePrefix}/`;
     if (!url.pathname.startsWith(prefix)) return null;
 
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      return new Response("Method Not Allowed", {
+        status: 405,
+        headers: { "allow": "GET, HEAD" },
+      });
+    }
+
     const gateKey = this.getGateKey(req);
     const gateErr = this.checkAndTouchGate(gateKey);
     if (gateErr) return gateErr;
@@ -590,8 +636,13 @@ export class FontObfuscator {
 
     const expRaw = url.searchParams.get("exp");
     const sig = url.searchParams.get("sig");
-    const exp = expRaw ? Number(expRaw) : NaN;
-    if (!Number.isFinite(exp) || exp <= 0 || !sig) {
+    // Reject non-decimal or suspiciously long exp values before Number() conversion.
+    if (!expRaw || !/^\d{1,15}$/.test(expRaw) || !sig) {
+      this.recordGateFailure(gateKey);
+      return new Response("Forbidden", { status: 403 });
+    }
+    const exp = Number(expRaw);
+    if (!Number.isFinite(exp) || exp <= 0) {
       this.recordGateFailure(gateKey);
       return new Response("Forbidden", { status: 403 });
     }
@@ -630,6 +681,7 @@ export class FontObfuscator {
       headers: {
         "content-type": "font/ttf",
         "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
       },
     });
   }
@@ -715,7 +767,7 @@ export class FontObfuscator {
     const fontUrl = `${this.fontRoutePrefix}/${ticket.token}?exp=${ticket.expiry}&sig=${ticket.sig}`;
 
     const sendClientMapping = options.sendClientMapping !== false;
-    const style = `<style>@font-face{font-family:${JSON.stringify(family)};src:url("${fontUrl}") format("truetype");}${normalizedSelectors.join(",")}{font-family:${JSON.stringify(family)},sans-serif !important;}</style>`;
+    const style = `<style>@font-face{font-family:${safeCssStringLiteral(family)};src:url("${fontUrl}") format("truetype");}${normalizedSelectors.join(",")}{font-family:${safeCssStringLiteral(family)},sans-serif !important;}</style>`;
     const script = sendClientMapping
       ? `<script>${buildClientScript(normalizedSelectors, encoded, xorSeed, observeMutations)}</script>`
       : "";
@@ -749,7 +801,14 @@ export class FontObfuscator {
       !this.rotatingMappingEntry ||
       now - this.rotatingMappingEntry.createdAt >= this.mappingRotationIntervalMs
     ) {
-      this.rotatingMappingEntry = { pm: this.precomputeMapping(hintHtml), createdAt: now };
+      const pm = this.precomputeMapping(hintHtml);
+      // Clear the cached entry on failure so the next call can retry.
+      pm.catch(() => {
+        if (this.rotatingMappingEntry?.pm === pm) {
+          this.rotatingMappingEntry = null;
+        }
+      });
+      this.rotatingMappingEntry = { pm, createdAt: now };
     }
     return this.rotatingMappingEntry.pm;
   }
@@ -763,6 +822,8 @@ export class FontObfuscator {
    * @param selectors  CSS selectors to obfuscate.
    * @param key  Cache key for distinguishing multiple pages (default `""`).
    */
+  private readonly rotatingPageMapMaxSize = 50;
+
   getRotatingPrecomputedPage(
     html: string,
     selectors: string[],
@@ -771,7 +832,19 @@ export class FontObfuscator {
     const now = Date.now();
     const entry = this.rotatingPageMap.get(key);
     if (!entry || now - entry.createdAt >= this.mappingRotationIntervalMs) {
-      const newEntry = { page: this.precomputeHtml(html, selectors), createdAt: now };
+      // Evict oldest entry when the map is full.
+      if (!entry && this.rotatingPageMap.size >= this.rotatingPageMapMaxSize) {
+        const oldest = this.rotatingPageMap.keys().next().value;
+        if (oldest !== undefined) this.rotatingPageMap.delete(oldest);
+      }
+      const page = this.precomputeHtml(html, selectors);
+      // Clear the cached entry on failure so the next call can retry.
+      page.catch(() => {
+        if (this.rotatingPageMap.get(key)?.page === page) {
+          this.rotatingPageMap.delete(key);
+        }
+      });
+      const newEntry = { page, createdAt: now };
       this.rotatingPageMap.set(key, newEntry);
     }
     return this.rotatingPageMap.get(key)!.page;
@@ -799,7 +872,7 @@ export class FontObfuscator {
     const fontUrl = `${this.fontRoutePrefix}/${ticket.token}?exp=${ticket.expiry}&sig=${ticket.sig}`;
 
     const sendClientMapping = options.sendClientMapping !== false;
-    const style = `<style>@font-face{font-family:${JSON.stringify(family)};src:url("${fontUrl}") format("truetype");}${selectors.join(",")}{font-family:${JSON.stringify(family)},sans-serif !important;}</style>`;
+    const style = `<style>@font-face{font-family:${safeCssStringLiteral(family)};src:url("${fontUrl}") format("truetype");}${selectors.join(",")}{font-family:${safeCssStringLiteral(family)},sans-serif !important;}</style>`;
     const script = sendClientMapping
       ? `<script>${buildClientScript(selectors, encoded, xorSeed, observeMutations)}</script>`
       : "";
@@ -843,7 +916,7 @@ export class FontObfuscator {
     const fontUrl = `${this.fontRoutePrefix}/${ticket.token}?exp=${ticket.expiry}&sig=${ticket.sig}`;
 
     const sendClientMapping = options.sendClientMapping !== false;
-    const style = `<style>@font-face{font-family:${JSON.stringify(family)};src:url("${fontUrl}") format("truetype");}${selectors.join(",")}{font-family:${JSON.stringify(family)},sans-serif !important;}</style>`;
+    const style = `<style>@font-face{font-family:${safeCssStringLiteral(family)};src:url("${fontUrl}") format("truetype");}${selectors.join(",")}{font-family:${safeCssStringLiteral(family)},sans-serif !important;}</style>`;
     const script = sendClientMapping
       ? `<script>${buildClientScript(selectors, encoded, xorSeed, observeMutations)}</script>`
       : "";
@@ -979,6 +1052,11 @@ export class FontObfuscator {
     this.cleanupState(now);
 
     const token = crypto.randomUUID();
+      // Hard cap: if the map is still full after cleanup, evict the oldest ticket.
+      if (this.fontTickets.size >= this.fontTicketsMaxSize) {
+        const oldest = this.fontTickets.keys().next().value;
+        if (oldest !== undefined) this.fontTickets.delete(oldest);
+      }
     const expiry = now + this.fontUrlTtlMs;
     const ticket: FontTicket = {
       seed: input.seed,
@@ -1048,6 +1126,12 @@ export class FontObfuscator {
     }
 
     state.count += 1;
+    // Evict oldest entry when the gate map reaches its size cap to prevent
+    // unbounded memory growth under a distributed IP flood attack.
+    if (!this.fontGate.has(key) && this.fontGate.size >= this.fontGateMaxSize) {
+      const oldest = this.fontGate.keys().next().value;
+      if (oldest !== undefined) this.fontGate.delete(oldest);
+    }
     this.fontGate.set(key, state);
     if (state.count > DEFAULT_FONT_GATE_MAX_PER_WINDOW) {
       return new Response("Too Many Requests", { status: 429 });
@@ -1091,7 +1175,7 @@ export class FontObfuscator {
 
   private loadSourceFont(): Promise<any> {
     if (!this.srcFontPromise) {
-      this.srcFontPromise = (async () => {
+      const p = (async () => {
         const res = await fetch(this.fontUrl);
         if (!res.ok) throw new Error(`failed to fetch font: ${res.status}`);
         let bytes = new Uint8Array(await res.arrayBuffer());
@@ -1110,6 +1194,11 @@ export class FontObfuscator {
           bytes.byteOffset + bytes.byteLength,
         ));
       })();
+      // Clear the cached promise on failure so subsequent calls can retry.
+      this.srcFontPromise = p.catch((e) => {
+        this.srcFontPromise = null;
+        throw e;
+      });
     }
     return this.srcFontPromise;
   }
@@ -1188,6 +1277,12 @@ export class FontObfuscator {
       return { fontBytes: new Uint8Array(ab), mapping };
     })();
 
+    // Clear the cache entry on failure so subsequent calls can retry.
+    p.catch(() => {
+      if (this.scrambleCache.get(cacheKey) === p) {
+        this.scrambleCache.delete(cacheKey);
+      }
+    });
     this.scrambleCache.set(cacheKey, p);
     return p;
   }
