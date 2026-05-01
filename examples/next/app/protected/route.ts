@@ -32,4 +32,5 @@ const baseHandler = async () =>
 export const GET = withNextRouteHandlerObfuscation(baseHandler, obfuscator, {
   selectors: [".secret"],
   skipPathPatterns: [/^\/_next\//],
+  sendClientMapping: false,
 });

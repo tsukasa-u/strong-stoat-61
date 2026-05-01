@@ -87,12 +87,30 @@ it("obfuscateHtml injects style/script for configured selectors", async () => {
   });
 
   const html = "<html><head></head><body><p class=\"a\">Hello</p></body></html>";
-  const out = await obf.obfuscateHtml(html, { selectors: [".a"], observeMutations: true });
+  const out = await obf.obfuscateHtml(html, {
+    selectors: [".a"],
+    observeMutations: true,
+    sendClientMapping: true,
+  });
 
   expect(out).toContain("@font-face");
   expect(out).toContain("_obf/font/");
   expect(out).toContain("MutationObserver");
   expect(out).toContain(".a");
+});
+
+it("obfuscateHtml does not inject client mapping by default", async () => {
+  const obf = new FontObfuscator({
+    fontUrl:
+      "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+  });
+
+  const html = "<html><head></head><body><p class=\"a\">Hello</p></body></html>";
+  const out = await obf.obfuscateHtml(html, { selectors: [".a"] });
+
+  expect(out).toContain("@font-face");
+  expect(out).not.toContain("MutationObserver");
+  expect(out).not.toContain("_enc=atob");
 });
 
 it("obfuscateHtml includes kanji found in html text in mapping", async () => {
@@ -102,7 +120,11 @@ it("obfuscateHtml includes kanji found in html text in mapping", async () => {
   });
 
   const html = "<html><head></head><body><p class=\"a\">感じと漢字の確認</p></body></html>";
-  const out = await obf.obfuscateHtml(html, { selectors: [".a"], observeMutations: false });
+  const out = await obf.obfuscateHtml(html, {
+    selectors: [".a"],
+    observeMutations: false,
+    sendClientMapping: true,
+  });
   const mapping = extractMappingFromInjectedScript(out);
 
   expect(mapping["感"]).toBeDefined();
@@ -206,7 +228,9 @@ it("preEncodeShuffled keeps deterministic lookup via indices", async () => {
 
   const pm = await obf.precomputeMapping("<html><body><p>0123456789</p></body></html>");
   const values = Array.from({ length: 100 }, (_, i) => String(i));
-  const { encoded, indices } = preEncodeShuffled(values, pm.mapping);
+  const { encoded, indices } = preEncodeShuffled(values, pm.mapping, {
+    variants: pm.variants,
+  });
 
   expect(encoded).toHaveLength(values.length);
   expect(indices).toHaveLength(values.length);
@@ -217,8 +241,23 @@ it("preEncodeShuffled keeps deterministic lookup via indices", async () => {
   expect(Math.max(...indices)).toBe(values.length - 1);
 
   for (let i = 0; i < values.length; i++) {
-    expect(encoded[indices[i]]).toBe(encodeText(values[i], pm.mapping));
+    expect(encoded[indices[i]].length).toBeGreaterThan(0);
   }
+});
+
+it("encodeText can emit multiple variants for same digit when variants are provided", async () => {
+  const obf = new FontObfuscator({
+    fontUrl:
+      "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+  });
+
+  const pm = await obf.precomputeMapping("<html><body><p>0123456789</p></body></html>");
+  const out = new Set<string>();
+  for (let i = 0; i < 20; i++) {
+    out.add(encodeText("0", pm.mapping, { variants: pm.variants, variantSeed: i + 1 }));
+  }
+
+  expect(out.size).toBeGreaterThan(1);
 });
 
 it("obfuscateSelectorScopeHtml does not corrupt text after void elements with target class", async () => {

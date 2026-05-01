@@ -39,6 +39,7 @@ function getPage(): Promise<PrecomputedPage> {
       const { encoded: preArr, indices: preIdx } = preEncodeShuffled(
         Array.from({ length: 100 }, (_, i) => String(i)),
         page.mapping,
+        { variants: page.variants },
       );
       page.puaHtml = page.puaHtml
         .replace('var _pre=[]', `var _pre=${JSON.stringify(preArr)}`)

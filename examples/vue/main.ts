@@ -41,6 +41,7 @@ async function baseHandler(req: Request): Promise<Response> {
   const { encoded: preArr, indices: preIdx } = preEncodeShuffled(
     Array.from({ length: 100 }, (_, i) => String(i)),
     pm.mapping,
+    { variants: pm.variants },
   );
   const preScript = `<script>var _pre=${JSON.stringify(preArr)},_preIdx=${JSON.stringify(preIdx)},c=0,el=document.getElementById('cnt')<\/script>`;
 

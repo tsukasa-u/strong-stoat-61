@@ -24,7 +24,7 @@ it("withFetchObfuscation injects obfuscation into html responses", async () => {
         headers: { "content-type": "text/html; charset=utf-8" },
       }),
     obfuscator,
-    { selectors: [".t"] },
+    { selectors: [".t"], sendClientMapping: true },
   );
 
   const res = await wrapped(new Request("http://localhost/"));
@@ -70,7 +70,7 @@ it("framework aliases (Next/Remix/Astro/Hono) behave like fetch wrapper", async 
           headers: { "content-type": "text/html" },
         }),
       obfuscator,
-      { selectors: ["#a"] },
+      { selectors: ["#a"], sendClientMapping: true },
     );
     const out = await (await wrapped(new Request("http://localhost/"))).text();
     expect(out).toContain("@font-face");
