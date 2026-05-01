@@ -1,0 +1,20 @@
+{
+  "name": "font-obfuscator-example-remix",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "remix vite:dev"
+  },
+  "dependencies": {
+    "@remix-run/node": "^2.15.0",
+    "@remix-run/react": "^2.15.0",
+    "font-obfuscator": "workspace:*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@remix-run/dev": "^2.15.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.10"
+  }
+}

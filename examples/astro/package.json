@@ -1,0 +1,12 @@
+{
+  "name": "font-obfuscator-example-astro",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev"
+  },
+  "dependencies": {
+    "astro": "^5.0.0",
+    "font-obfuscator": "workspace:*"
+  }
+}

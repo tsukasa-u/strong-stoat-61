@@ -1,0 +1,40 @@
+/**
+ * Remix adapter runnable example (Node)
+ *
+ * Run:
+ *   pnpm example:remix
+ */
+
+import { FontObfuscator, withRemixRequestHandlerObfuscation } from "../../lib/index.ts";
+import { serveFetch } from "../../lib/nodeServer.ts";
+
+const FONT_URL =
+  "https://raw.githubusercontent.com/google/fonts/main/ofl/notosansjp/NotoSansJP%5Bwght%5D.ttf";
+
+const obfuscator = new FontObfuscator({
+  fontUrl: FONT_URL,
+  fontRoutePrefix: "/_obf/font",
+});
+
+function baseHandler(_req: Request): Response {
+  return new Response(
+    `<!doctype html>
+<html lang="ja">
+<head><meta charset="utf-8" /><title>Remix Adapter Example</title></head>
+<body>
+  <h1>withRemixRequestHandlerObfuscation</h1>
+  <p class="secret">このテキストは難読化されます。Hello World</p>
+  <p class="plain">このテキストは通常表示です。</p>
+</body>
+</html>`,
+    { headers: { "content-type": "text/html; charset=utf-8" } },
+  );
+}
+
+const handler = withRemixRequestHandlerObfuscation(baseHandler, obfuscator, {
+  selectors: [".secret"],
+  skipPathPatterns: [/^\/build\//, /^\/_data\//],
+});
+
+console.log("[remix-adapter-example] http://localhost:8011/");
+serveFetch(handler, 8011);
