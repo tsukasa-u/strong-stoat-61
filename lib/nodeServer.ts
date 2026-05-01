@@ -1,0 +1,37 @@
+import { createServer } from "node:http";
+
+export function serveFetch(handler: (req: Request) => Promise<Response> | Response, port: number): void {
+  const server = createServer(async (req, res) => {
+    try {
+      const origin = `http://${req.headers.host ?? `localhost:${port}`}`;
+      const url = new URL(req.url ?? "/", origin);
+
+      const request = new Request(url, {
+        method: req.method,
+        headers: req.headers as Record<string, string>,
+        body: req.method === "GET" || req.method === "HEAD" ? undefined : req,
+        duplex: "half",
+      } as RequestInit);
+
+      const response = await handler(request);
+      res.statusCode = response.status;
+      response.headers.forEach((value, key) => {
+        res.setHeader(key, value);
+      });
+
+      if (response.body) {
+        for await (const chunk of response.body) {
+          res.write(chunk);
+        }
+      }
+      res.end();
+    } catch (error) {
+      res.statusCode = 500;
+      res.setHeader("content-type", "text/plain; charset=utf-8");
+      const message = error instanceof Error ? error.stack ?? error.message : String(error);
+      res.end(`Internal Server Error\n${message}`);
+    }
+  });
+
+  server.listen(port);
+}
