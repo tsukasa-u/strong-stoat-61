@@ -3,8 +3,8 @@
     <h1>Nuxt example</h1>
     <p class="secret">このテキストは難読化されます。Hello World</p>
     <div>
-      <button onclick="if(c<_pre.length-1)c++;el.textContent=_pre[c]">Count</button>
-      <button onclick="c=0;el.textContent=_pre[0]">Reset</button>
+      <button onclick="if(c<_pre.length-1)c++;el.textContent=_pre[_preIdx[c]]">Count</button>
+      <button onclick="c=0;el.textContent=_pre[_preIdx[0]]">Reset</button>
     </div>
     <p id="cnt" class="secret">0</p>
   </main>

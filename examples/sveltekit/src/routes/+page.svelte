@@ -9,8 +9,10 @@
   function applyCount() {
     const el = document.getElementById("cnt");
     const pre = readPre();
+    const idx = (globalThis as any)._preIdx as number[] | undefined;
     if (!el || pre.length === 0) return;
-    el.textContent = pre[c] ?? pre[0];
+    const pos = idx ? (idx[c] ?? c) : c;
+    el.textContent = pre[pos] ?? pre[0];
   }
 
   function onCount() {

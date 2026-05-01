@@ -1,5 +1,5 @@
 import Fastify from "fastify";
-import { FontObfuscator, encodeText, type PrecomputedPage } from "../../../lib/index.ts";
+import { FontObfuscator, preEncodeShuffled, type PrecomputedPage } from "../../../lib/index.ts";
 
 const app = Fastify();
 const port = Number(process.env.PORT ?? 3000);
@@ -19,25 +19,31 @@ const BASE_HTML = `<!doctype html>
   <h1>Fastify example</h1>
   <p class="secret">このテキストは難読化されます。Hello World</p>
   <div>
-    <button onclick="if(c<_pre.length-1)c++;el.textContent=_pre[c]">Count</button>
-    <button onclick="c=0;el.textContent=_pre[0]">Reset</button>
+    <button onclick="if(c<_pre.length-1)c++;el.textContent=_pre[_preIdx[c]]">Count</button>
+    <button onclick="c=0;el.textContent=_pre[_preIdx[0]]">Reset</button>
   </div>
   <p id="cnt" class="secret">0</p>
-  <script>var _pre=[],c=0,el=document.getElementById('cnt')<\/script>
+  <script>var _pre=[],_preIdx=[],c=0,el=document.getElementById('cnt')<\/script>
 </body>
 </html>`;
 
-let _precomputed: PrecomputedPage | null = null;
+let _rotatingEntry: { page: PrecomputedPage; createdAt: number } | null = null;
+const ROTATION_MS = 5 * 60 * 1000;
+
 async function getPage(): Promise<PrecomputedPage> {
-  if (!_precomputed) {
+  const now = Date.now();
+  if (!_rotatingEntry || now - _rotatingEntry.createdAt >= ROTATION_MS) {
     const page = await obfuscator.precomputeHtml(BASE_HTML, [".secret"]);
-    // Pre-encode integers 0–99 using the stable mapping so the client never
-    // receives the character→PUA mapping but COUNT still displays obfuscated.
-    const preArr = Array.from({ length: 100 }, (_, i) => encodeText(String(i), page.mapping));
-    page.puaHtml = page.puaHtml.replace('var _pre=[]', `var _pre=${JSON.stringify(preArr)}`);
-    _precomputed = page;
+    const { encoded: preArr, indices: preIdx } = preEncodeShuffled(
+      Array.from({ length: 100 }, (_, i) => String(i)),
+      page.mapping,
+    );
+    page.puaHtml = page.puaHtml
+      .replace('var _pre=[]', `var _pre=${JSON.stringify(preArr)}`)
+      .replace('_preIdx=[]', `_preIdx=${JSON.stringify(preIdx)}`);
+    _rotatingEntry = { page, createdAt: now };
   }
-  return _precomputed;
+  return _rotatingEntry.page;
 }
 
 app.get("/_obf/font/:token", async (request, reply) => {

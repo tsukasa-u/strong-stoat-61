@@ -1,5 +1,5 @@
 import { createMiddleware } from "@solidjs/start/middleware";
-import { FontObfuscator, encodeText, type PrecomputedMapping } from "../../../lib/index.ts";
+import { FontObfuscator, preEncodeShuffled } from "../../../lib/index.ts";
 
 const obfuscator = new FontObfuscator({
   fontUrl:
@@ -54,7 +54,7 @@ export default createMiddleware({
       }
       if (!html.includes("<html")) return;
 
-      const pm = await _mapping;
+      const pm = await obfuscator.getRotatingMapping();
       const ip = (event.request.headers.get("x-forwarded-for") ?? "").split(",")[0].trim();
       const ua = event.request.headers.get("user-agent") ?? "";
 
@@ -64,9 +64,12 @@ export default createMiddleware({
         sendClientMapping: false,
       });
 
-      // Inject pre-encoded counter values so COUNT stays obfuscated client-side.
-      const preArr = Array.from({ length: 100 }, (_, i) => encodeText(String(i), pm.mapping));
-      const preScript = `<script>var _pre=${JSON.stringify(preArr)},c=0,el=document.getElementById('cnt')<\/script>`;
+      // Inject pre-encoded counter values (shuffled order) so COUNT stays obfuscated client-side.
+      const { encoded: preArr, indices: preIdx } = preEncodeShuffled(
+        Array.from({ length: 100 }, (_, i) => String(i)),
+        pm.mapping,
+      );
+      const preScript = `<script>var _pre=${JSON.stringify(preArr)},_preIdx=${JSON.stringify(preIdx)},c=0,el=document.getElementById('cnt')<\/script>`;
       result = result.replace("</body>", `${preScript}</body>`);
 
       response.body = result;

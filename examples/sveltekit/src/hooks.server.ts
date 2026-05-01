@@ -1,5 +1,5 @@
 import type { Handle } from "@sveltejs/kit";
-import { FontObfuscator, encodeText, type PrecomputedMapping } from "../../../lib/index.ts";
+import { FontObfuscator, preEncodeShuffled } from "../../../lib/index.ts";
 
 const obfuscator = new FontObfuscator({
   fontUrl:
@@ -8,7 +8,6 @@ const obfuscator = new FontObfuscator({
 });
 
 const SELECTORS = [".secret"];
-const _mapping: Promise<PrecomputedMapping> = obfuscator.precomputeMapping();
 
 export const handle: Handle = async ({ event, resolve }) => {
   const { pathname } = new URL(event.request.url);
@@ -23,9 +22,12 @@ export const handle: Handle = async ({ event, resolve }) => {
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.includes("text/html")) return response;
 
-  const pm = await _mapping;
-  const preArr = Array.from({ length: 100 }, (_, i) => encodeText(String(i), pm.mapping));
-  const preScript = `<script>var _pre=${JSON.stringify(preArr)},c=0,el=document.getElementById('cnt')<\/script>`;
+  const pm = await obfuscator.getRotatingMapping();
+  const { encoded: preArr, indices: preIdx } = preEncodeShuffled(
+    Array.from({ length: 100 }, (_, i) => String(i)),
+    pm.mapping,
+  );
+  const preScript = `<script>var _pre=${JSON.stringify(preArr)},_preIdx=${JSON.stringify(preIdx)},c=0,el=document.getElementById('cnt')<\/script>`;
 
   const ip = (event.request.headers.get("x-forwarded-for") ?? "").split(",")[0].trim();
   const ua = event.request.headers.get("user-agent") ?? "";

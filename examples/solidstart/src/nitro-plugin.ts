@@ -1,4 +1,4 @@
-import { FontObfuscator, encodeText, type PrecomputedMapping } from "../../../lib/index.ts";
+import { FontObfuscator, preEncodeShuffled } from "../../../lib/index.ts";
 
 const obfuscator = new FontObfuscator({
   fontUrl:
@@ -8,14 +8,7 @@ const obfuscator = new FontObfuscator({
 
 const SELECTORS = [".secret"];
 
-// Nitro plugin functions must be synchronous, but registered hooks can be async.
-// Kick off precomputation immediately so that by the first request the mapping
-// (and the scrambled font) is already cached server-side.
-let _mapping: Promise<PrecomputedMapping>;
-
 export default defineNitroPlugin((nitroApp) => {
-  _mapping = obfuscator.precomputeMapping();
-
   nitroApp.hooks.hook("render:response", async (response, { event }) => {
     if (typeof response.body !== "string") return;
     const contentType =
@@ -24,7 +17,7 @@ export default defineNitroPlugin((nitroApp) => {
       "";
     if (!String(contentType).toLowerCase().includes("text/html")) return;
 
-    const pm = await _mapping;
+    const pm = await obfuscator.getRotatingMapping();
     const ip = (event.headers.get?.("x-forwarded-for") ?? "").split(",")[0].trim();
     const ua = event.headers.get?.("user-agent") ?? "";
 
@@ -34,9 +27,12 @@ export default defineNitroPlugin((nitroApp) => {
       sendClientMapping: false,
     });
 
-    // Inject pre-encoded counter values so COUNT stays obfuscated client-side.
-    const preArr = Array.from({ length: 100 }, (_, i) => encodeText(String(i), pm.mapping));
-    const preScript = `<script>var _pre=${JSON.stringify(preArr)},c=0,el=document.getElementById('cnt')<\/script>`;
+    // Inject pre-encoded counter values (shuffled order) so COUNT stays obfuscated client-side.
+    const { encoded: preArr, indices: preIdx } = preEncodeShuffled(
+      Array.from({ length: 100 }, (_, i) => String(i)),
+      pm.mapping,
+    );
+    const preScript = `<script>var _pre=${JSON.stringify(preArr)},_preIdx=${JSON.stringify(preIdx)},c=0,el=document.getElementById('cnt')<\/script>`;
     response.body = response.body.replace("</body>", `${preScript}</body>`);
 
     if (response.headers) {

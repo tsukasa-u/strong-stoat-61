@@ -1,6 +1,7 @@
 export {
   FontObfuscator,
   encodeText,
+  preEncodeShuffled,
   type FontObfuscatorOptions,
   type ObfuscateHtmlOptions,
   type PrecomputedPage,

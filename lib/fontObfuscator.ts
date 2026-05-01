@@ -10,6 +10,13 @@ export interface FontObfuscatorOptions {
   sessionTtlMs?: number;
   alphabet?: string[];
   devMode?: boolean;
+  /**
+   * How often (ms) to rotate the PUA shuffle mapping.
+   * After each interval a new random seed is chosen, invalidating any
+   * previously captured font files and `_pre` arrays.
+   * @default 300_000 (5 minutes)
+   */
+  mappingRotationIntervalMs?: number;
 }
 
 export interface ObfuscateHtmlOptions {
@@ -103,7 +110,7 @@ interface ScrambleResult {
 
 const DEFAULT_FONT_ROUTE_PREFIX = "/_obf/font";
 const DEFAULT_SESSION_TTL_MS = 60 * 60 * 1000;
-const DEFAULT_FONT_URL_TTL_MS = 15 * 1000;
+const DEFAULT_FONT_URL_TTL_MS = 5 * 1000;
 const DEFAULT_FONT_GATE_WINDOW_MS = 60 * 1000;
 const DEFAULT_FONT_GATE_MAX_PER_WINDOW = 20;
 const DEFAULT_FONT_GATE_BLOCK_AFTER_FAILURES = 5;
@@ -340,13 +347,44 @@ function obfuscateTextWithMapping(input: string, mapping: Record<string, number>
  * Encode a plain-text string to PUA characters using a precomputed mapping.
  * Use this server-side to pre-encode dynamic values (e.g. counter range) so
  * that the client never receives the raw character → PUA mapping.
- *
- * @example
- * // Pre-encode integers 0–99 at startup
- * const _pre = Array.from({ length: 100 }, (_, i) => encodeText(String(i), page.mapping));
  */
 export function encodeText(text: string, mapping: Record<string, number>): string {
   return obfuscateTextWithMapping(text, mapping);
+}
+
+/**
+ * Pre-encode an ordered array of values and return them in a **shuffled** order
+ * together with an index map so the client can resolve `values[i]` without the
+ * indices being trivially sequential.
+ *
+ * This breaks the naive sequential-correlation attack where `_pre[0]` could be
+ * assumed to equal `encode("0")`, `_pre[1]` = `encode("1")`, etc.
+ *
+ * The client receives both arrays and reads: `encoded[indices[i]]`.
+ *
+ * @example
+ * // Server (per rotation):
+ * const { encoded, indices } = preEncodeShuffled(
+ *   Array.from({ length: 100 }, (_, i) => String(i)),
+ *   mapping,
+ * );
+ * // inject into HTML:
+ * // `var _pre=${JSON.stringify(encoded)},_preIdx=${JSON.stringify(indices)}`
+ *
+ * // Client onclick:
+ * el.textContent = _pre[_preIdx[c]];
+ */
+export function preEncodeShuffled(
+  values: string[],
+  mapping: Record<string, number>,
+): { encoded: string[]; indices: number[] } {
+  const n = values.length;
+  const perm = Array.from({ length: n }, (_, i) => i);
+  shuffle(perm, mulberry32(secureRandU32()));
+  const encoded = perm.map(i => encodeText(values[i], mapping));
+  const indices = new Array<number>(n);
+  perm.forEach((origIdx, pos) => { indices[origIdx] = pos; });
+  return { encoded, indices };
 }
 
 interface SelectorSets {
@@ -508,6 +546,10 @@ export class FontObfuscator {
   private fontGate = new Map<string, GateState>();
   private scrambleCache = new Map<string, Promise<ScrambleResult>>();
   private srcFontPromise: Promise<any> | null = null;
+  private readonly mappingRotationIntervalMs: number;
+  private rotatingMappingEntry: { pm: Promise<PrecomputedMapping>; createdAt: number } | null = null;
+  private rotatingPageMap = new Map<string, { page: Promise<PrecomputedPage>; createdAt: number }>();
+  private readonly scrambleCacheMaxSize = 10;
 
   constructor(options: FontObfuscatorOptions) {
     this.fontUrl = options.fontUrl;
@@ -516,6 +558,7 @@ export class FontObfuscator {
     this.fontUrlTtlMs = Math.min(this.sessionTtlMs, DEFAULT_FONT_URL_TTL_MS);
     this.alphabet = options.alphabet ?? defaultAlphabet();
     this.devMode = options.devMode ?? false;
+    this.mappingRotationIntervalMs = options.mappingRotationIntervalMs ?? 5 * 60 * 1000;
     this.hmacSecret = crypto.getRandomValues(new Uint8Array(32));
     const keyMaterial = this.hmacSecret.buffer.slice(
       this.hmacSecret.byteOffset,
@@ -692,6 +735,48 @@ export class FontObfuscator {
    * mapping is sent to the client — PUA characters already in the HTML simply
    * pass through unchanged (they are not in the mapping's key set).
    */
+  /**
+   * Returns the current rotating mapping. A new mapping is generated after
+   * `mappingRotationIntervalMs` (default 5 min), limiting how long any
+   * captured `_pre` array or downloaded font file remains exploitable.
+   *
+   * Call this **per-request** in SSR handlers instead of caching
+   * `precomputeMapping()` at module scope.
+   */
+  getRotatingMapping(hintHtml?: string): Promise<PrecomputedMapping> {
+    const now = Date.now();
+    if (
+      !this.rotatingMappingEntry ||
+      now - this.rotatingMappingEntry.createdAt >= this.mappingRotationIntervalMs
+    ) {
+      this.rotatingMappingEntry = { pm: this.precomputeMapping(hintHtml), createdAt: now };
+    }
+    return this.rotatingMappingEntry.pm;
+  }
+
+  /**
+   * Returns the current rotating precomputed page for static HTML.
+   * Re-runs `precomputeHtml` after `mappingRotationIntervalMs` so that
+   * old fonts and cached HTML become useless after each rotation window.
+   *
+   * @param html  The static HTML template (re-evaluated only on rotation).
+   * @param selectors  CSS selectors to obfuscate.
+   * @param key  Cache key for distinguishing multiple pages (default `""`).
+   */
+  getRotatingPrecomputedPage(
+    html: string,
+    selectors: string[],
+    key = "",
+  ): Promise<PrecomputedPage> {
+    const now = Date.now();
+    const entry = this.rotatingPageMap.get(key);
+    if (!entry || now - entry.createdAt >= this.mappingRotationIntervalMs) {
+      const newEntry = { page: this.precomputeHtml(html, selectors), createdAt: now };
+      this.rotatingPageMap.set(key, newEntry);
+    }
+    return this.rotatingPageMap.get(key)!.page;
+  }
+
   async servePrecomputed(page: PrecomputedPage, options: ServePrecomputedOptions = {}): Promise<string> {
     const { puaHtml, seed, candidateAlphabet, mapping, selectors } = page;
     if (selectors.length === 0) return puaHtml;
@@ -1034,6 +1119,12 @@ export class FontObfuscator {
     const cached = this.scrambleCache.get(cacheKey);
     if (cached) return cached;
 
+    // LRU eviction: keep the cache bounded so old rotation entries don't accumulate.
+    if (this.scrambleCache.size >= this.scrambleCacheMaxSize) {
+      const oldest = this.scrambleCache.keys().next().value;
+      if (oldest !== undefined) this.scrambleCache.delete(oldest);
+    }
+
     const p = (async (): Promise<ScrambleResult> => {
       const srcFont = await this.loadSourceFont();
 
@@ -1074,7 +1165,9 @@ export class FontObfuscator {
         const srcGlyph = srcFont.charToGlyph(ch);
 
         newGlyphs.push(new Glyph({
-          name: srcGlyph.name || `g${pua.toString(16)}`,
+          // Opaque deterministic name: never reveals the original character.
+          // Prevents fonttools / name-table attacks that map PUA → glyph name → original char.
+          name: `g${toHex32(Math.imul((seed ^ i) + 0x9e3779b9, pua + 0x6c62272e) >>> 0)}`,
           unicode: pua,
           advanceWidth: srcGlyph.advanceWidth,
           path: srcGlyph.path,

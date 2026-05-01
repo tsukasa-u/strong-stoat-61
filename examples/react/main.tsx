@@ -7,7 +7,7 @@
  */
 
 import { renderToStaticMarkup } from "react-dom/server";
-import { FontObfuscator, encodeText, type PrecomputedMapping } from "../../lib/index.ts";
+import { FontObfuscator, preEncodeShuffled } from "../../lib/index.ts";
 import { serveFetch } from "../../lib/nodeServer.ts";
 
 const FONT_URL =
@@ -19,7 +19,6 @@ const obfuscator = new FontObfuscator({
 });
 
 const SELECTORS = [".secret"];
-const _mapping: Promise<PrecomputedMapping> = obfuscator.precomputeMapping();
 
 function App() {
   return (
@@ -33,8 +32,8 @@ function App() {
         <h1>React SSR example</h1>
         <p className="secret">このテキストは難読化されます。Hello World</p>
         <div>
-          <button id="btn-count" onclick="if(c<_pre.length-1)c++;el.textContent=_pre[c]">Count</button>
-          <button id="btn-reset" onclick="c=0;el.textContent=_pre[0]">Reset</button>
+          <button id="btn-count" onclick="if(c<_pre.length-1)c++;el.textContent=_pre[_preIdx[c]]">Count</button>
+          <button id="btn-reset" onclick="c=0;el.textContent=_pre[_preIdx[0]]">Reset</button>
         </div>
         <p id="cnt" className="secret">0</p>
       </body>
@@ -43,9 +42,12 @@ function App() {
 }
 
 async function baseHandler(req: Request): Promise<Response> {
-  const pm = await _mapping;
-  const preArr = Array.from({ length: 100 }, (_, i) => encodeText(String(i), pm.mapping));
-  const preScript = `<script>var _pre=${JSON.stringify(preArr)},c=0,el=document.getElementById('cnt')<\/script>`;
+  const pm = await obfuscator.getRotatingMapping();
+  const { encoded: preArr, indices: preIdx } = preEncodeShuffled(
+    Array.from({ length: 100 }, (_, i) => String(i)),
+    pm.mapping,
+  );
+  const preScript = `<script>var _pre=${JSON.stringify(preArr)},_preIdx=${JSON.stringify(preIdx)},c=0,el=document.getElementById('cnt')<\/script>`;
 
   const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim();
   const ua = req.headers.get("user-agent") ?? "";

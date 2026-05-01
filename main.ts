@@ -1,4 +1,4 @@
-import { FontObfuscator, type PrecomputedPage } from "./lib/index.ts";
+import { FontObfuscator } from "./lib/index.ts";
 
 const obfuscator = new FontObfuscator({
   fontUrl:
@@ -1183,20 +1183,11 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
 </html>`;
 }
 
-// Precompute PUA-encoded HTML once at startup.
-// The fixed mapping (derived from `page.seed`) stays constant for the
-// server's lifetime; only the per-request font ticket changes.
-let precomputedPage: PrecomputedPage | null = null;
-
-async function getPrecomputedPage(): Promise<PrecomputedPage> {
-  if (!precomputedPage) {
-    precomputedPage = await obfuscator.precomputeHtml(basePageHtml(), [
-      ".obf-target",
-      "#secret",
-    ]);
-  }
-  return precomputedPage;
-}
+// HTML template is evaluated once; per-request only font ticket changes.
+// Mapping rotates every 5 minutes (library default) to limit the window
+// during which a captured font file remains exploitable.
+const PAGE_HTML = basePageHtml();
+const PAGE_SELECTORS = [".obf-target", "#secret"];
 
 async function handler(req: Request): Promise<Response> {
   const fontResponse = await obfuscator.maybeHandleFontRequest(req);
@@ -1207,7 +1198,7 @@ async function handler(req: Request): Promise<Response> {
     return new Response("Not Found", { status: 404 });
   }
 
-  const page = await getPrecomputedPage();
+  const page = await obfuscator.getRotatingPrecomputedPage(PAGE_HTML, PAGE_SELECTORS);
   const html = await obfuscator.servePrecomputed(page, {
     pageKey: url.pathname,
     clientFingerprint: `${(req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim()}|${req.headers.get("user-agent") ?? ""}`,
