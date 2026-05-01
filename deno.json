@@ -1,0 +1,6 @@
+{
+  "imports": {
+    "opentype.js": "npm:opentype.js@^1.3.4",
+    "wawoff2": "npm:wawoff2@^2.0.1"
+  }
+}

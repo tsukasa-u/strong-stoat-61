@@ -17,7 +17,7 @@
     "README.ja.md"
   ],
   "scripts": {
-    "dev": "tsx main.ts",
+    "dev": "deno run --allow-net main.ts",
     "build": "tsup lib/index.ts --format esm --dts --clean",
     "prepack": "pnpm build",
     "check": "tsc --noEmit",

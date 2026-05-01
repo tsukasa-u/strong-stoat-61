@@ -1,7 +1,4 @@
 import { FontObfuscator } from "./lib/index.ts";
-import { serveFetch } from "./lib/nodeServer.ts";
-
-const PORT = 8000;
 
 const obfuscator = new FontObfuscator({
   fontUrl:
@@ -1225,5 +1222,4 @@ async function handler(req: Request): Promise<Response> {
   });
 }
 
-console.log(`[server] http://localhost:${PORT}/`);
-serveFetch(handler, PORT);
+Deno.serve({ port: 8000 }, handler);
