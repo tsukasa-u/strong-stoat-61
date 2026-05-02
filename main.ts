@@ -525,7 +525,7 @@ function basePageHtml(): string {
     .play-grid {
       margin-top: 0.75rem;
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-columns: 1fr 1fr;
       gap: 0.8rem;
       align-items: start;
     }
@@ -695,9 +695,6 @@ function basePageHtml(): string {
           <summary data-i18n="srcPeekBtn"></summary>
           <pre class="src-peek-code" id="src-peek-obf-text"></pre>
         </details>
-        <button id="add" type="button" data-i18n="addButton"></button>
-        <p class="dynamic-note" data-i18n="dynamicNote"></p>
-        <div id="dynamic" class="obf-target"></div>
       </article>
 
       <article class="card">
@@ -743,17 +740,6 @@ function basePageHtml(): string {
         <div class="play-box">
           <h3 data-i18n="playPlainLabel"></h3>
           <p id="play-plain"></p>
-        </div>
-        <div class="play-box">
-          <h3 data-i18n="playDomLabel"></h3>
-          <pre id="play-dom-text"></pre>
-          <div class="play-copy-row">
-            <button id="play-copy-dom" type="button" class="btn-sm btn-ghost" data-i18n="copyDemoBtn"></button>
-          </div>
-          <div id="play-copy-dom-result" class="play-copy-result">
-            <p class="copy-result-label" data-i18n="copyResultLabel"></p>
-            <pre id="play-copy-dom-text"></pre>
-          </div>
         </div>
         <div class="play-box">
           <h3 data-i18n="playObfLabel"></h3>
@@ -841,8 +827,6 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
         copyResultLabel: "クリップボードに入った文字列（これがスクレイパーに渡るもの）",
         srcPeekBtn: "🔍 DOM内の実際の文字コードを見る",
         plain: "この段落は平文のままです。対象外要素は影響を受けません。",
-        addButton: "動的テキスト追加",
-        dynamicNote: "追加したテキストもリアルタイムで難読化されます（MutationObserver 対応）",
         usageTitle: "導入側コード例",
         frameworkTitle: "主要フレームワーク対応",
         inspectorTitle: "仕組みを 3 ステップで確認する",
@@ -852,15 +836,13 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
         detailDomText: "② DOM内テキスト（難読化済み PUA 文字コード）",
         detailRendered: "③ ブラウザ描画（人間には正しく読める）",
         playTitle: "Playground",
-        playLead: "任意のテキストを入力して、DOM上の難読化結果とブラウザ描画の両方をその場で確認できます。",
+        playLead: "テキストを入力して、難読化フォントによる描画をプレビューできます。実際の DOM レベル PUA エンコードはサーバー側で行われます（上の Inspector セクションで確認できます）。",
         playPlaceholder: "例: 漢字かなカナABC123 記号!? 追加したい文字を入力してください",
         playApply: "対象へ適用",
         playClear: "クリア",
         playPlainLabel: "入力テキスト（平文）",
-        playDomLabel: "DOM テキスト（スクレイパーが取得するもの）",
-        playObfLabel: "ブラウザ描画（人間には正しく読める）",
+        playObfLabel: "難読化フォントによる描画（視覚プレビュー）",
         playStatusIdle: "入力して「対象へ適用」を押してください。",
-        playStatusFmt: "変換結果: 全 {total} 文字 / PUA変換 {mapped} 文字 / 未変換 {unmapped} 文字",
         redactedSource: "保護対象テキストは配布ソースから除外されています",
       },
       en: {
@@ -881,8 +863,6 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
         copyResultLabel: "What went to clipboard (what scrapers would receive)",
         srcPeekBtn: "🔍 View actual DOM character codes",
         plain: "This paragraph stays plain text and is not targeted.",
-        addButton: "Add Dynamic Text",
-        dynamicNote: "Dynamically added text is also obfuscated in real time (MutationObserver).",
         usageTitle: "Integration Example",
         frameworkTitle: "Major Framework Adapters",
         inspectorTitle: "See how it works in 3 steps",
@@ -892,15 +872,13 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
         detailDomText: "② DOM text (obfuscated PUA codes)",
         detailRendered: "③ Browser render (human-readable)",
         playTitle: "Playground",
-        playLead: "Type any text to see both the obfuscated DOM codes and the human-readable browser render side by side.",
+        playLead: "Enter text to preview how the obfuscated font renders it visually. Actual DOM-level PUA encoding happens server-side (see the Inspector section above).",
         playPlaceholder: "Example: Kanji kana カナ ABC123 symbols!? Type any characters you want to test",
         playApply: "Apply to Target",
         playClear: "Clear",
         playPlainLabel: "Plain input",
-        playDomLabel: "DOM text (what scrapers get)",
-        playObfLabel: "Browser render (human-readable)",
+        playObfLabel: "Obfuscated font render (visual preview only)",
         playStatusIdle: "Enter text and click Apply to Target.",
-        playStatusFmt: "Result: total {total} chars / mapped to PUA {mapped} / unchanged {unmapped}",
         redactedSource: "Protected text is not shipped in distributable i18n/source payloads",
       },
     };
@@ -924,39 +902,6 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
       return out;
     }
 
-    function formatPlayStatus(total, mapped, unmapped) {
-      const template = i18n[currentLang].playStatusFmt;
-      return template
-        .replace("{total}", String(total))
-        .replace("{mapped}", String(mapped))
-        .replace("{unmapped}", String(unmapped));
-    }
-
-    function updatePlayStatus() {
-      const plain = (document.getElementById("play-plain")?.textContent || "").trim();
-      const obf = (document.getElementById("play-target")?.textContent || "").trim();
-      const statusEl = document.getElementById("play-status");
-      if (!statusEl) return;
-      if (plain.length === 0) {
-        statusEl.textContent = i18n[currentLang].playStatusIdle;
-        return;
-      }
-
-      const src = splitCodePoints(plain);
-      const dst = splitCodePoints(obf);
-      const n = Math.min(src.length, dst.length);
-      let mapped = 0;
-      let unmapped = 0;
-      for (let i = 0; i < n; i++) {
-        const changedToPua = src[i] !== dst[i] && dst[i] >= 0xe000 && dst[i] <= 0xf8ff;
-        if (changedToPua) mapped++;
-        else unmapped++;
-      }
-      if (src.length > n) unmapped += src.length - n;
-
-      statusEl.textContent = formatPlayStatus(src.length, mapped, unmapped);
-    }
-
     function applyLanguage(lang) {
       currentLang = lang;
       const t = i18n[lang];
@@ -976,20 +921,14 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
       });
 
       const plain = document.getElementById("plain-text");
-      const add = document.getElementById("add");
-      const dynamic = document.getElementById("dynamic");
       const playInput = document.getElementById("play-input");
       const playPlain = document.getElementById("play-plain");
       const playTarget = document.getElementById("play-target");
-      const playStatus = document.getElementById("play-status");
 
       if (plain) plain.textContent = t.plain;
-      if (add) add.textContent = t.addButton;
-      if (dynamic) dynamic.innerHTML = "";
       if (playInput && "value" in playInput) playInput.value = "";
       if (playPlain) playPlain.textContent = "";
       if (playTarget) playTarget.textContent = "";
-      if (playStatus) playStatus.textContent = t.playStatusIdle;
 
       setLangButtons();
       setTimeout(refreshInspector, 0);
@@ -1046,7 +985,7 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
     }
 
     function refreshProof() {
-      const firstObf = document.querySelector(".obf-target:not(#dynamic):not(#play-target)");
+      const firstObf = document.querySelector(".obf-target:not(#play-target)");
       if (!firstObf) return;
       const domText = firstObf.textContent || "";
 
@@ -1061,7 +1000,7 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
 
       const obfPeek = document.getElementById("src-peek-obf-text");
       if (obfPeek) {
-        const lines = Array.from(document.querySelectorAll(".obf-target:not(#dynamic):not(#play-target)"))
+        const lines = Array.from(document.querySelectorAll(".obf-target:not(#play-target)"))
           .map((el) => escapeCodePoints(el.textContent || ""))
           .filter((s) => s.length > 0);
         obfPeek.textContent = lines.join("\\n");
@@ -1105,7 +1044,7 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
     }
 
     document.getElementById("copy-demo-obf")?.addEventListener("click", () => {
-      const els = Array.from(document.querySelectorAll(".obf-target:not(#dynamic):not(#play-target)"));
+      const els = Array.from(document.querySelectorAll(".obf-target:not(#play-target)"));
       const text = els.map((el) => el.textContent || "").join(" ");
       navigator.clipboard?.writeText(text).catch(() => {});
       showCopyResult("copy-result-obf", "copy-result-obf-text", text);
@@ -1118,25 +1057,6 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
       showCopyResult("copy-result-secret", "copy-result-secret-text", text);
     });
 
-    document.getElementById("add")?.addEventListener("click", () => {
-      const root = document.getElementById("dynamic");
-      if (!root) return;
-      const p = document.createElement("p");
-      p.textContent = currentLang === "ja"
-        ? "動的追加テキスト #" + (root.childElementCount + 1)
-        : "Dynamic line #" + (root.childElementCount + 1);
-      root.appendChild(p);
-      setTimeout(refreshInspector, 0);
-    });
-
-    function updatePlayDomText() {
-      const target = document.getElementById("play-target");
-      const domEl = document.getElementById("play-dom-text");
-      if (!target || !domEl) return;
-      const raw = target.textContent || "";
-      domEl.textContent = raw.length > 0 ? escapeCodePoints(raw) : "";
-    }
-
     document.getElementById("play-apply")?.addEventListener("click", () => {
       const input = document.getElementById("play-input");
       const plain = document.getElementById("play-plain");
@@ -1145,41 +1065,17 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
       const text = (input.value || "").trim();
       plain.textContent = text;
       target.textContent = text;
-      // hide stale copy result
-      const cr = document.getElementById("play-copy-dom-result");
-      if (cr) cr.style.display = "none";
-      setTimeout(() => {
-        refreshInspector();
-        updatePlayStatus();
-        updatePlayDomText();
-      }, 0);
+      setTimeout(refreshInspector, 0);
     });
 
     document.getElementById("play-clear")?.addEventListener("click", () => {
       const input = document.getElementById("play-input");
       const plain = document.getElementById("play-plain");
       const target = document.getElementById("play-target");
-      const domEl = document.getElementById("play-dom-text");
-      const cr = document.getElementById("play-copy-dom-result");
       if (input && "value" in input) input.value = "";
       if (plain) plain.textContent = "";
       if (target) target.textContent = "";
-      if (domEl) domEl.textContent = "";
-      if (cr) cr.style.display = "none";
-      setTimeout(() => {
-        refreshInspector();
-        updatePlayStatus();
-      }, 0);
-    });
-
-    document.getElementById("play-copy-dom")?.addEventListener("click", () => {
-      const target = document.getElementById("play-target");
-      const text = target?.textContent || "";
-      navigator.clipboard?.writeText(text).catch(() => {});
-      const cr = document.getElementById("play-copy-dom-result");
-      const pre = document.getElementById("play-copy-dom-text");
-      if (cr) cr.style.display = "block";
-      if (pre) pre.textContent = escapeCodePoints(text);
+      setTimeout(refreshInspector, 0);
     });
 
     applyLanguage("ja");
