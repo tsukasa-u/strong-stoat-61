@@ -23,6 +23,11 @@ jobs:
           node-version: 20
           cache: pnpm
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -34,6 +39,9 @@ jobs:
 
       - name: Verify examples
         run: pnpm verify:examples
+
+      - name: Workers dry-run bundle check
+        run: pnpm --dir examples/cloudflare-workers exec wrangler deploy --dry-run
 
       - name: Build package
         run: pnpm build
