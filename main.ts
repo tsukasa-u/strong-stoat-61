@@ -4,6 +4,12 @@ const obfuscator = new FontObfuscator({
   fontUrl:
     "https://raw.githubusercontent.com/google/fonts/main/ofl/notosansjp/NotoSansJP%5Bwght%5D.ttf",
   fontRoutePrefix: "/_obf/font",
+  // First-load readability hardening: avoid short-lived URL expiry and
+  // prefer blocking fallback while the protected font is loading.
+  fontUrlTtlMs: 45_000,
+  fontDisplay: "block",
+  // Local Deno demo has no trusted reverse proxy.
+  trustedProxies: [],
   devMode: true,
 });
 
@@ -1184,10 +1190,13 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
 }
 
 // HTML template is evaluated once; per-request only font ticket changes.
-// Mapping rotates every 5 minutes (library default) to limit the window
+// Mapping rotates every 2 minutes (library default) to limit the window
 // during which a captured font file remains exploitable.
 const PAGE_HTML = basePageHtml();
 const PAGE_SELECTORS = [".obf-target", "#secret"];
+
+// Warm up source-font fetch/parse before serving traffic to reduce first-hit tofu risk.
+const prewarmPromise = obfuscator.precomputeMapping(PAGE_HTML).then(() => undefined).catch(() => undefined);
 
 async function handler(req: Request): Promise<Response> {
   const fontResponse = await obfuscator.maybeHandleFontRequest(req);
@@ -1198,10 +1207,11 @@ async function handler(req: Request): Promise<Response> {
     return new Response("Not Found", { status: 404 });
   }
 
+  await prewarmPromise;
+
   const page = await obfuscator.getRotatingPrecomputedPage(PAGE_HTML, PAGE_SELECTORS);
   const html = await obfuscator.servePrecomputed(page, {
     pageKey: url.pathname,
-    clientFingerprint: `${(req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim()}|${req.headers.get("user-agent") ?? ""}`,
   });
 
   return new Response(html, {
