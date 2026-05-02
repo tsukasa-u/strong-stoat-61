@@ -36,9 +36,15 @@ Each framework directory also contains a minimal project layout that can be ente
 - Solid SSR: `solid/package.json`, `solid/main.tsx`
 - Nuxt: `nuxt/package.json`, `nuxt/app.vue`, `nuxt/server/plugins/font-obfuscator.ts`, `nuxt/server/middleware/font-obfuscator.ts`
 - SolidStart: `solidstart/package.json`, `solidstart/src/app.tsx`, `solidstart/src/routes/index.tsx`, `solidstart/src/middleware.ts`, `solidstart/src/nitro-plugin.ts`, `solidstart/src/entry-client.tsx`, `solidstart/src/entry-server.tsx`
+- Cloudflare Workers: `cloudflare-workers/worker.ts`, `cloudflare-workers/wrangler.toml`
+- Bun: `bun/main.ts`
 
 ## Notes
 
 - The runnable entries are optimized for fast repository-level smoke tests.
 - The standalone skeletons are optimized to show the framework-native file placement.
+- All example source files consistently use `import { ... } from "font-obfuscator"`.
+- For repository-local runs, build once first (`pnpm build`) so `dist/` is available.
+- `pnpm verify:examples` now also validates Cloudflare Workers example typecheck and runs Bun runtime smoke when `bun` is available.
+- CI additionally runs `wrangler deploy --dry-run` for Cloudflare Workers to validate bundling without publishing.
 - SolidStart is included as a project shape example. A stable framework-level final HTML response hook was not clearly documented in the current official docs, so this skeleton currently focuses on the app structure rather than a completed response-transform integration.

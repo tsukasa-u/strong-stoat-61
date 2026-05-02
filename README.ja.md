@@ -18,7 +18,7 @@ Font Obfuscator は、HTMLレスポンスに難読化処理を注入するライ
 2. [コピー耐性を維持する運用](#コピー耐性を維持する運用)
 3. [Core API](#core-api)
 4. [アダプタは何をしているか](#アダプタは何をしているか)
-5. [React/Vue/Astro/Solid/Hono での適用](#reactvueastrosolidhono-での適用)
+5. [React/Vue/Astro/Solid/Hono/Bun/Cloudflare Workers での適用](#reactvueastrosolidhonobuncloudflare-workers-での適用)
 6. [GitHub Pages を考慮した構成](#github-pages-を考慮した構成)
 7. [最小導入例](#最小導入例)
 8. [限界と注意](#限界と注意)
@@ -45,17 +45,18 @@ Font Obfuscator は、HTMLレスポンスに難読化処理を注入するライ
 - 再割当済みグリフで新しい TTF を生成
 - セッションごと token を発行し `fontRoutePrefix/<token>` で配信
 
-### 4) HTML注入
+### 4) HTML注入（サーバーサイドのみ）
 
-`obfuscateHtml()` が次を注入します。
+`obfuscateHtml()`（または `servePrecomputed()`）はすべての処理をサーバー側で行います。
 
-- `@font-face` と対象セレクタへのフォント適用
-- base64+xor で埋め込んだマッピング
-- 対象テキストノードを書き換えるクライアントスクリプト
+- 対象セレクタ内のテキストノードを PUA 文字に置換
+- `@font-face` ルールとセレクタへのフォント適用を `<head>` に注入
+- マッピングやデコードロジックはクライアントに一切送信しない
 
-### 5) 動的DOM追従
+### 5) 動的な値（カウンター・価格）
 
-- `observeMutations: true` のとき、`MutationObserver` で追加ノードにも適用
+[`preEncodeShuffled`](#preencodeShuffled) を使ってサーバーサイドで値の配列を事前エンコードします。
+クライアントには PUA 文字列の配列とインデックスのみが届き、マッピングは渡されません。
 
 ## コピー耐性を維持する運用
 
@@ -94,25 +95,86 @@ Font Obfuscator は、HTMLレスポンスに難読化処理を注入するライ
 
 ## Core API
 
+### どのパターンを使うか
+
+| シナリオ | パターン |
+|---|---|
+| シンプル・低トラフィック・完全動的 HTML | `obfuscateHtml()` |
+| 静的 HTML テンプレート (Express, Fastify, Hono) | `precomputeHtml()` + `getRotatingPrecomputedPage()` + `servePrecomputed()` |
+| 動的 SSR ボディ (Nuxt, SolidStart Nitro) | `precomputeMapping()` + `getRotatingMapping()` + `serveWithMapping()` |
+| Next.js / Remix / Astro / SvelteKit / Hono / Bun / Cloudflare Workers | アダプタヘルパーを使用（[アダプタは何をしているか](#アダプタは何をしているか)を参照）|
+
 ### `new FontObfuscator(options)`
 
-- `fontUrl: string` (必須)
-- `fontRoutePrefix?: string` (既定 `/_obf/font`)
-- `sessionTtlMs?: number`
-- `alphabet?: string[]`
+| オプション | 既定値 | 説明 |
+|---|---|---|
+| `fontUrl` | (必須) | 元フォント（TTF/WOFF2）の `http`/`https` URL |
+| `fontRoutePrefix` | `/_obf/font` | フォントトークンエンドポイントのパスプレフィックス |
+| `fontUrlTtlMs` | `30_000` | トークン有効期限（ms）。低速回線では延長を検討 |
+| `fontDisplay` | `"block"` | `@font-face` の `font-display` 戦略 |
+| `digitVariantCount` | `4` | 数字（0〜9）ごとの追加 PUA バリアント数 |
+| `mappingRotationIntervalMs` | `120_000` | PUA シャッフルマッピングのローテーション間隔（ms）|
+| `alphabet` | ASCII + ひらがな + カタカナ + 全角 | スクランブル対象文字セット |
+| `trustedProxies` | `undefined` | XFF 解析で信頼するリバースプロキシ IP リスト |
+| `devMode` | `false` | マッピングされていない文字を示すパネルを表示 |
 
-### `await obfuscator.obfuscateHtml(html, options)`
+### `await obfuscator.obfuscateHtml(html, { selectors })`
 
-- `selectors: string[]` (必須)
-- `fontFamilyName?: string`
-- `observeMutations?: boolean` (既定 `true`)
-- `pageKey?: string`
-- `clientFingerprint?: string`
+リクエストごとにフォントとマッピングを構築するオールインワン関数です。
+
+- `selectors: string[]` — 必須。`.class` や `#id` 形式のセレクタ
+- `fontFamilyName?: string` — CSS ファミリ名を上書き
+- `pageKey?: string` — フォントチケットの名前空間（既定 `/`）
+- `clientFingerprint?: string` — トークンをこのクライアントに紐付け
+- `devMode?: boolean` — インスタンスレベルの devMode をこの呼び出しのみ上書き
 
 ### `await obfuscator.maybeHandleFontRequest(request)`
 
 - フォント配信対象なら `Response`
 - それ以外は `null`
+
+### `await obfuscator.precomputeHtml(html, selectors)` → `PrecomputedPage`
+
+マッピングを一度だけ構築します。結果をキャッシュし、リクエストごとに `servePrecomputed` を呼び出します。
+`preEncodeShuffled` の配列を注入する場合は、キャッシュ前に `page.rawHtml` を書き換えてください。
+
+```ts
+const page = await obfuscator.precomputeHtml(BASE_HTML, [".secret"]);
+const { encoded, indices } = preEncodeShuffled(values, page.mapping);
+page.rawHtml = page.rawHtml
+  .replace('var _pre=[]', `var _pre=${JSON.stringify(encoded)}`)
+  .replace('_preIdx=[]',  `_preIdx=${JSON.stringify(indices)}`);
+```
+
+### `obfuscator.getRotatingPrecomputedPage(html, selectors, key?)` → `Promise<PrecomputedPage>`
+
+`precomputeHtml` と同様ですが、`mappingRotationIntervalMs` 経過後に自動で再構築します。
+
+### `await obfuscator.servePrecomputed(page, options?)` → `string`
+
+`PrecomputedPage` にリクエストごとの新しいフォントチケットを注入します。
+数字バリアントのシードを毎回変えるため、同一ローテーション内でも各レスポンスが異なって見えます。
+
+### `await obfuscator.precomputeMapping(hintHtml?)` → `PrecomputedMapping`
+
+最終的な HTML ボディなしで、安定したシード＋マッピングを構築します。
+動的 SSR（Nuxt, SolidStart）向けです。
+
+### `obfuscator.getRotatingMapping(hintHtml?)` → `Promise<PrecomputedMapping>`
+
+`precomputeMapping` と同様ですが自動ローテーションします。**リクエストごとに呼び出してください。**
+
+### `await obfuscator.serveWithMapping(html, selectors, mapping, options?)` → `string`
+
+プリコンピューティングされたマッピングで `html` を PUA エンコードし、新しいフォントチケットを注入します。
+
+### `encodeText(text, mapping, options?)`
+
+単一文字列をサーバーサイドで PUA 文字にエンコードします。
+
+### `preEncodeShuffled(values, mapping, options?)`
+
+値の配列をシャッフル位置とデコイエントリ付きで事前エンコードします。
 
 ## アダプタは何をしているか
 
@@ -143,13 +205,22 @@ Font Obfuscator は、HTMLレスポンスに難読化処理を注入するライ
 これも fetch 互換ラッパの別名です。
 `Request -> Response` を扱うミドルウェア層に適用します。
 
+### Bun / Cloudflare Workers / Deno
+
+- `withFetchObfuscation`
+
+これらのランタイムは Fetch ネイティブなので、汎用 fetch アダプタをそのまま使えます。
+- Bun: `Bun.serve({ fetch: handler })`
+- Cloudflare Workers: `export default { fetch: handler }`
+- Deno: `Deno.serve(handler)`
+
 ### SvelteKit
 
 - `withSvelteKitHandleObfuscation`
 
 `handle({ event, resolve })` 形式に合わせた専用ラッパです。
 
-## React/Vue/Astro/Solid/Hono での適用
+## React/Vue/Astro/Solid/Hono/Bun/Cloudflare Workers での適用
 
 - React / Vue / Solid:
   SSR層 (Next/Nuxt/SolidStart など) で最終 HTML レスポンスを触れるなら適用可能
@@ -157,6 +228,10 @@ Font Obfuscator は、HTMLレスポンスに難読化処理を注入するライ
   通常の `.astro` ページでは middleware が第一候補。endpoint ラップは局所用途向け
 - Hono:
   `new Hono()` で定義した通常の app の fetch ハンドラを包むのが自然
+- Bun:
+  `Bun.serve()` にラップ済み fetch ハンドラを渡す形が最もシンプル
+- Cloudflare Workers:
+  `export default { fetch }` で適用。メモリ状態は isolate ごとに分離される点に注意
 
 注意:
 
@@ -185,6 +260,8 @@ GitHub Pages は静的ホスティングのため、token付きフォント配�
 
 ## 最小導入例
 
+### 汎用 fetch 互換
+
 ```ts
 import { FontObfuscator, withFetchObfuscation } from "font-obfuscator";
 
@@ -198,11 +275,11 @@ const handler = withFetchObfuscation(
     headers: { "content-type": "text/html; charset=utf-8" },
   }),
   obfuscator,
-  { selectors: [".secret"], observeMutations: true },
+  { selectors: [".secret"] },
 );
 ```
 
-フォント配信分岐を明示する場合:
+### フォントエンドポイントの明示分岐
 
 ```ts
 const fontRes = await obfuscator.maybeHandleFontRequest(req);
@@ -256,6 +333,7 @@ VS Code で `Cannot find module ...` が出る場合は、
 確認手順:
 
 - `pnpm install`
+- `pnpm build`
 - `pnpm check`
 - それでも残る場合は VS Code を再読み込み
 
@@ -266,3 +344,4 @@ VS Code で `Cannot find module ...` が出る場合は、
 - 全体一覧は [examples/README.ja.md](examples/README.ja.md) を参照してください。
 - 即実行エントリは `pnpm verify:examples` で使うファイル群です。
 - 最小プロジェクト構成は `examples/<framework>/package.json` を起点に `pnpm install` → `pnpm dev` で確認できます。
+- サンプルコード内の import は `import { ... } from "font-obfuscator"` に統一しています。

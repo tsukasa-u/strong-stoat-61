@@ -36,9 +36,15 @@
 - Solid SSR: `solid/package.json`, `solid/main.tsx`
 - Nuxt: `nuxt/package.json`, `nuxt/app.vue`, `nuxt/server/plugins/font-obfuscator.ts`, `nuxt/server/middleware/font-obfuscator.ts`
 - SolidStart: `solidstart/package.json`, `solidstart/src/app.tsx`, `solidstart/src/routes/index.tsx`, `solidstart/src/middleware.ts`, `solidstart/src/nitro-plugin.ts`, `solidstart/src/entry-client.tsx`, `solidstart/src/entry-server.tsx`
+- Cloudflare Workers: `cloudflare-workers/worker.ts`, `cloudflare-workers/wrangler.toml`
+- Bun: `bun/main.ts`
 
 ## 補足
 
 - 即実行エントリは、リポジトリ全体のスモークテスト向けです。
 - 最小プロジェクト構成は、framework らしいファイル配置を示すためのものです。
+- サンプルコードの import は `import { ... } from "font-obfuscator"` に統一しています。
+- リポジトリ内で実行する場合は、先に `pnpm build` で `dist/` を生成してください。
+- `pnpm verify:examples` は Cloudflare Workers 例の型検証を行い、`bun` が利用可能な環境では Bun 例の実行スモークも行います。
+- CI では Cloudflare Workers に対して `wrangler deploy --dry-run` も実行し、公開せずにバンドル可否を検証します。
 - SolidStart については、現行の公式情報から最終 HTML レスポンスを安定して横取りするフックが明確に確認できなかったため、現時点では「プロジェクト構成の例」を主目的にしています。

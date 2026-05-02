@@ -17,7 +17,7 @@ It remaps glyphs to Private Use Area (PUA) code points so that:
 2. [How To Preserve Copy-Resistance](#how-to-preserve-copy-resistance)
 3. [Core API](#core-api)
 4. [Adapter Behavior by Framework](#adapter-behavior-by-framework)
-5. [Framework Notes (React, Vue, Astro, Solid, Hono)](#framework-notes-react-vue-astro-solid-hono)
+5. [Framework Notes (React, Vue, Astro, Solid, Hono, Bun, Cloudflare Workers)](#framework-notes-react-vue-astro-solid-hono-bun-cloudflare-workers)
 6. [GitHub Pages Strategy](#github-pages-strategy)
 7. [Quick Start](#quick-start)
 8. [Security Limits](#security-limits)
@@ -30,7 +30,7 @@ It remaps glyphs to Private Use Area (PUA) code points so that:
 
 ### 1) Font loading and parsing
 
-- The library fetches `fontUrl`.
+- The library fetches `fontUrl` at startup.
 - If the font is WOFF2 (`wOF2`), it is decompressed to TTF first.
 - Parsed with `opentype.js`.
 
@@ -38,24 +38,26 @@ It remaps glyphs to Private Use Area (PUA) code points so that:
 
 - It checks which characters from the configured `alphabet` exist in the source font.
 - It assigns each usable character to a shuffled PUA code point (`U+E000+`).
-- Shuffling is seed-based per session.
+- Shuffling is seed-based per session, rotated on a configurable interval.
 
 ### 3) Build an obfuscated font
 
-- A new TTF is generated where those glyphs now live on PUA code points.
-- This font is served by tokenized endpoint: `fontRoutePrefix/<token>`.
+- A new TTF is generated where those glyphs live on PUA code points.
+- This font is served via a one-time signed token URL: `fontRoutePrefix/<token>?exp=<ms>&sig=<hex>`.
+- The token is single-use and expires after `fontUrlTtlMs`.
 
-### 4) Inject HTML payload
+### 4) Inject HTML payload (server-side only)
 
-`obfuscateHtml()` injects:
+`obfuscateHtml()` (or `servePrecomputed()`) does **all** encoding on the server:
 
-- `@font-face` and selector-level font assignment
-- Client-side script containing an encoded map (base64 + xor)
-- Script rewrites text nodes under target selectors
+- Replaces every text node inside the target selectors with PUA-encoded characters.
+- Injects a `@font-face` rule + per-selector `font-family` override so the browser renders the correct glyphs.
+- No mapping or decoding logic is ever sent to the client.
 
-### 5) Dynamic DOM support
+### 5) Dynamic values (counters, prices)
 
-- With `observeMutations: true`, a `MutationObserver` applies obfuscation to newly added content.
+Use [`preEncodeShuffled`](#preencodeShuffled) to pre-encode arrays of values server-side.
+The client receives only an array of PUA strings and an index — never the mapping.
 
 ## How To Preserve Copy-Resistance
 
@@ -79,25 +81,88 @@ Current implementation hardening:
 
 ## Core API
 
+### Which pattern to use?
+
+| Scenario | Pattern |
+|---|---|
+| Simple / low-traffic / fully dynamic HTML | `obfuscateHtml()` |
+| Static HTML template (Express, Fastify, Hono) | `precomputeHtml()` + `getRotatingPrecomputedPage()` + `servePrecomputed()` |
+| Dynamic SSR body (Nuxt, SolidStart Nitro) | `precomputeMapping()` + `getRotatingMapping()` + `serveWithMapping()` |
+| Next.js / Remix / Astro / SvelteKit / Hono / Bun / Cloudflare Workers | Adapter helpers — see [Adapter Behavior](#adapter-behavior-by-framework) |
+
 ### `new FontObfuscator(options)`
 
-- `fontUrl: string` (required)
-- `fontRoutePrefix?: string` (default `/_obf/font`)
-- `sessionTtlMs?: number`
-- `alphabet?: string[]`
+| Option | Default | Description |
+|---|---|---|
+| `fontUrl` | (required) | `http`/`https` URL of source TTF or WOFF2 font |
+| `fontRoutePrefix` | `/_obf/font` | Path prefix for the one-time font token endpoint |
+| `fontUrlTtlMs` | `30_000` | Token TTL in ms; increase if slow networks cause expiry |
+| `fontDisplay` | `"block"` | CSS `font-display` strategy in the injected `@font-face` |
+| `digitVariantCount` | `4` | Extra PUA variants per digit (0–9) — harder to infer from a sample |
+| `mappingRotationIntervalMs` | `120_000` | How often the PUA shuffle mapping rotates (ms) |
+| `alphabet` | ASCII + hiragana + katakana + full-width | Characters to include in the scrambled font |
+| `trustedProxies` | `undefined` | IP list of trusted reverse proxies for XFF walking |
+| `devMode` | `false` | Show floating panel listing unmapped characters |
 
-### `await obfuscator.obfuscateHtml(html, options)`
+### `await obfuscator.obfuscateHtml(html, { selectors })`
 
-- `selectors: string[]` (required)
-- `fontFamilyName?: string`
-- `observeMutations?: boolean` (default `true`)
-- `pageKey?: string`
-- `clientFingerprint?: string`
+All-in-one per-request obfuscation.  Builds a fresh font + mapping on every call.
+
+- `selectors: string[]` — required; simple `.class` or `#id` selectors only
+- `fontFamilyName?: string` — override the generated CSS family name
+- `pageKey?: string` — namespace for font tickets (default `/`)
+- `clientFingerprint?: string` — bind the token to this client
+- `devMode?: boolean` — override instance-level devMode for this call
 
 ### `await obfuscator.maybeHandleFontRequest(request)`
 
-- Returns `Response` when request matches obfuscated font path
-- Returns `null` otherwise
+Place this at the top of your router.  Returns a `Response` when the request
+matches the font token path, `null` otherwise.
+
+### `await obfuscator.precomputeHtml(html, selectors)` → `PrecomputedPage`
+
+Builds the mapping once.  Store the result; call `servePrecomputed` per request.
+To inject `preEncodeShuffled` arrays, patch `page.rawHtml` before caching:
+
+```ts
+const page = await obfuscator.precomputeHtml(BASE_HTML, [".secret"]);
+const { encoded, indices } = preEncodeShuffled(values, page.mapping);
+page.rawHtml = page.rawHtml
+  .replace('var _pre=[]', `var _pre=${JSON.stringify(encoded)}`)
+  .replace('_preIdx=[]',  `_preIdx=${JSON.stringify(indices)}`);
+```
+
+### `obfuscator.getRotatingPrecomputedPage(html, selectors, key?)` → `Promise<PrecomputedPage>`
+
+Same as `precomputeHtml` but automatically rebuilds after `mappingRotationIntervalMs`.
+
+### `await obfuscator.servePrecomputed(page, options?)` → `string`
+
+Injects a fresh per-request font ticket into a `PrecomputedPage`.
+Re-encodes text with a new digit-variant seed so every response looks different.
+
+### `await obfuscator.precomputeMapping(hintHtml?)` → `PrecomputedMapping`
+
+Builds a stable seed + mapping without needing the final HTML body.
+Use for dynamic SSR (Nuxt, SolidStart).
+
+### `obfuscator.getRotatingMapping(hintHtml?)` → `Promise<PrecomputedMapping>`
+
+Same as `precomputeMapping` but auto-rotates.  Call **per-request**.
+
+### `await obfuscator.serveWithMapping(html, selectors, mapping, options?)` → `string`
+
+PUA-encodes `html` using a precomputed mapping and injects a fresh font ticket.
+
+### `encodeText(text, mapping, options?)`
+
+Encode a single string to PUA characters server-side.
+
+### `preEncodeShuffled(values, mapping, options?)`
+
+Pre-encode an array of values with shuffled positions and decoy entries.
+The client receives `{ encoded, indices }` and reads `encoded[indices[i]]`.
+See the `@example` in the JSDoc for a full counter pattern.
 
 ## Adapter Behavior by Framework
 
@@ -128,17 +193,28 @@ These are aliases over the same fetch-compatible adapter behavior.
 Also an alias to fetch-compatible adapter flow.
 Use where your route layer handles `Request -> Response`.
 
+### Bun / Cloudflare Workers / Deno
+
+- `withFetchObfuscation`
+
+These runtimes are Fetch-native, so use the generic fetch adapter directly.
+- Bun: `Bun.serve({ fetch: handler })`
+- Cloudflare Workers: `export default { fetch: handler }`
+- Deno: `Deno.serve(handler)`
+
 ### SvelteKit
 
 - `withSvelteKitHandleObfuscation`
 
 This wraps `handle({ event, resolve })` style and post-processes the resolved HTML response.
 
-## Framework Notes (React, Vue, Astro, Solid, Hono)
+## Framework Notes (React, Vue, Astro, Solid, Hono, Bun, Cloudflare Workers)
 
 - React / Vue / Solid: works best in SSR frameworks (Next/Nuxt/SolidStart) where final HTML response can be transformed.
 - Astro: middleware is the preferred integration point for normal `.astro` pages; endpoint wrapping is a secondary option.
 - Hono: use the normal `new Hono()` app and wrap its fetch handler.
+- Bun: use `Bun.serve()` and pass a wrapped fetch handler.
+- Cloudflare Workers: export a default object with `fetch`; note that in-memory state is isolate-local.
 
 Important:
 
@@ -176,7 +252,7 @@ const handler = withFetchObfuscation(
     headers: { "content-type": "text/html; charset=utf-8" },
   }),
   obfuscator,
-  { selectors: [".secret"], observeMutations: true },
+  { selectors: [".secret"] },
 );
 ```
 
@@ -235,10 +311,11 @@ install dependencies first and make sure your workspace TypeScript server is usi
 Recommended checks:
 
 - `pnpm install`
+- `pnpm build`
 - `pnpm check`
 - Reload VS Code window after install if modules are still unresolved
 
-Common causes are missing `node_modules` or stale TS language service cache.
+Common causes are missing `node_modules`, missing `dist` build output, or stale TS language service cache.
 
 ## Examples Layout
 
@@ -247,3 +324,4 @@ The repository contains both quick runnable entries and framework-shaped example
 - See [examples/README.md](examples/README.md) for the full examples map.
 - Runnable entries are the files exercised by `pnpm verify:examples`.
 - Standalone framework skeletons are the `examples/<framework>/package.json` projects you can enter directly and run with `pnpm install` then `pnpm dev`.
+- Example source files use `import { ... } from "font-obfuscator"` consistently.
