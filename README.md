@@ -18,13 +18,12 @@ It remaps glyphs to Private Use Area (PUA) code points so that:
 3. [Core API](#core-api)
 4. [Adapter Behavior by Framework](#adapter-behavior-by-framework)
 5. [Framework Notes (React, Vue, Astro, Solid, Hono, Bun, Cloudflare Workers)](#framework-notes-react-vue-astro-solid-hono-bun-cloudflare-workers)
-6. [GitHub Pages Strategy](#github-pages-strategy)
-7. [Quick Start](#quick-start)
-8. [Security Limits](#security-limits)
-9. [Testing](#testing)
-10. [Runtime Choice: Node/pnpm](#runtime-choice-nodepnpm)
-11. [Troubleshooting: Cannot find module](#troubleshooting-cannot-find-module)
-12. [Examples Layout](#examples-layout)
+6. [Quick Start](#quick-start)
+7. [Security Limits](#security-limits)
+8. [Testing](#testing)
+9. [Runtime Choice: Node/pnpm](#runtime-choice-nodepnpm)
+10. [Troubleshooting: Cannot find module](#troubleshooting-cannot-find-module)
+11. [Examples Layout](#examples-layout)
 
 ## How It Works
 
@@ -219,21 +218,6 @@ This wraps `handle({ event, resolve })` style and post-processes the resolved HT
 Important:
 
 - Pure CSR-only apps can still run client-side obfuscation logic, but resistance is weaker than server-side injection model.
-
-## GitHub Pages Strategy
-
-GitHub Pages is static hosting. It cannot run tokenized font session endpoints by itself.
-
-Recommended split:
-
-1. Host documentation and static explanation UI on GitHub Pages (`docs/`)
-2. Host runtime obfuscation server (Node/Edge) elsewhere
-3. Link Pages docs to runtime demo endpoint
-
-This repository includes:
-
-- `docs/index.html` bilingual static documentation page with language switch
-- `.github/workflows/deploy-pages.yml` for Pages deployment
 
 ## Quick Start
 

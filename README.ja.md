@@ -19,13 +19,12 @@ Font Obfuscator は、HTMLレスポンスに難読化処理を注入するライ
 3. [Core API](#core-api)
 4. [アダプタは何をしているか](#アダプタは何をしているか)
 5. [React/Vue/Astro/Solid/Hono/Bun/Cloudflare Workers での適用](#reactvueastrosolidhonobuncloudflare-workers-での適用)
-6. [GitHub Pages を考慮した構成](#github-pages-を考慮した構成)
-7. [最小導入例](#最小導入例)
-8. [限界と注意](#限界と注意)
-9. [テスト](#テスト)
-10. [ランタイム選定: Node/pnpm](#ランタイム選定-nodepnpm)
-11. [トラブルシュート: Cannot find module](#トラブルシュート-cannot-find-module)
-12. [Examples の見方](#examples-の見方)
+6. [最小導入例](#最小導入例)
+7. [限界と注意](#限界と注意)
+8. [テスト](#テスト)
+9. [ランタイム選定: Node/pnpm](#ランタイム選定-nodepnpm)
+10. [トラブルシュート: Cannot find module](#トラブルシュート-cannot-find-module)
+11. [Examples の見方](#examples-の見方)
 
 ## 仕組み
 
@@ -236,27 +235,6 @@ page.rawHtml = page.rawHtml
 注意:
 
 - 完全CSRのみの構成でも動作は可能ですが、耐性はサーバー適用より弱くなります。
-
-## GitHub Pages を考慮した構成
-
-GitHub Pages は静的ホスティングのため、token付きフォント配信の実行環境にはなりません。
-
-推奨構成:
-
-1. GitHub Pages
-
-- ドキュメント/静的説明ページを公開 (`docs/`)
-
-1. 別の実行環境
-
-- Node/Edge で難読化サーバーを運用
-
-1. Pages からランタイムデモへリンク
-
-このリポジトリには次を用意しています。
-
-- `docs/index.html` (日英切替可能な静的ドキュメントページ)
-- `.github/workflows/deploy-pages.yml` (Pages デプロイ)
 
 ## 最小導入例
 
