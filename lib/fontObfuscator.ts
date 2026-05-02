@@ -312,17 +312,40 @@ function normalizeClientFingerprint(value: string | undefined): string | undefin
   return v.length > 0 ? v : undefined;
 }
 
+/**
+ * Decode numeric HTML character references (&#48; &#x30;) in a text node.
+ * Structural named entities (&amp; &lt; &gt; &quot;) are intentionally
+ * left encoded because replacing them with raw characters would corrupt the
+ * surrounding HTML structure.
+ */
+function decodeNumericCharRefs(text: string): string {
+  return text
+    .replace(/&#(\d{1,7});/g, (_, dec) => {
+      const cp = Number(dec);
+      return Number.isFinite(cp) && cp >= 0 && cp <= 0x10ffff
+        ? String.fromCodePoint(cp)
+        : _;
+    })
+    .replace(/&#x([0-9a-fA-F]{1,6});/gi, (_, hex) => {
+      const cp = parseInt(hex, 16);
+      return cp >= 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : _;
+    });
+}
+
 function obfuscateTextWithMapping(
   input: string,
   mapping: Record<string, number>,
   variants?: Record<string, number[]>,
   variantSeed?: number,
 ): string {
+  // Decode numeric character references so that e.g. &#48; is treated as '0'
+  // and gets the same PUA mapping as the literal character.
+  const decoded = decodeNumericCharRefs(input);
   const useVariants = !!variants && !!variantSeed;
-  const rng = useVariants ? mulberry32((variantSeed! ^ fnv1a32(input)) >>> 0) : null;
+  const rng = useVariants ? mulberry32((variantSeed! ^ fnv1a32(decoded)) >>> 0) : null;
   let out = "";
-  for (let i = 0; i < input.length;) {
-    const cp = input.codePointAt(i)!;
+  for (let i = 0; i < decoded.length;) {
+    const cp = decoded.codePointAt(i)!;
     const ch = String.fromCodePoint(cp);
     let mapped = mapping[ch];
     if (useVariants) {
@@ -1071,11 +1094,17 @@ export class FontObfuscator {
   ): Set<string> {
     const unmapped = new Set<string>();
     
-    // Strip HTML tags/scripts/styles, leaving only text content
+    // Strip HTML tags/scripts/styles/textarea, leaving only text content.
+    // Must mirror the same exclusions as extractTextCharsFromHtml so that
+    // chars in noparse blocks (e.g. textarea) are not falsely reported.
     let textContent = html
       .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
       .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+      .replace(/<textarea\b[^>]*>[\s\S]*?<\/textarea>/gi, " ")
       .replace(/<[^>]+>/g, " ");
+    // Also decode numeric char refs so we flag the same chars as the HTML
+    // entity bypass fix in obfuscateTextWithMapping.
+    textContent = decodeNumericCharRefs(textContent);
     
     // Check characters in text that would appear in selected elements
     // (conservative: check all visible text, not just selector-matched elements)
