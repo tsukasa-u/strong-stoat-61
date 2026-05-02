@@ -5,7 +5,7 @@
  *   pnpm example:solid
  */
 
-import { FontObfuscator, preEncodeShuffled } from "../../lib/index.ts";
+import { FontObfuscator, preEncodeShuffled } from "font-obfuscator";
 import { serveFetch } from "../../lib/nodeServer.ts";
 
 const FONT_URL =
@@ -19,9 +19,6 @@ const obfuscator = new FontObfuscator({
 const SELECTORS = [".secret"];
 
 async function baseHandler(req: Request): Promise<Response> {
-  const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim();
-  const ua = req.headers.get("user-agent") ?? "";
-
   const body = [
     "<h1>SolidJS SSR example</h1>",
     '<p class="secret">このテキストは難読化されます。Hello World</p>',
@@ -39,8 +36,7 @@ async function baseHandler(req: Request): Promise<Response> {
 
   let html = await obfuscator.serveWithMapping(rawHtml, SELECTORS, pm, {
     pageKey: new URL(req.url).pathname,
-    clientFingerprint: `${ip}|${ua}`,
-    sendClientMapping: false,
+    clientFingerprint: obfuscator.getClientFingerprint(req),
   });
   html = html.replace("</body>", `${preScript}</body>`);
   return new Response(html, {

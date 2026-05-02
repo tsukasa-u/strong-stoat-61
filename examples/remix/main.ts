@@ -5,7 +5,7 @@
  *   pnpm example:remix
  */
 
-import { FontObfuscator, withRemixRequestHandlerObfuscation } from "../../lib/index.ts";
+import { FontObfuscator, withRemixRequestHandlerObfuscation } from "font-obfuscator";
 import { serveFetch } from "../../lib/nodeServer.ts";
 
 const FONT_URL =
@@ -34,7 +34,6 @@ function baseHandler(_req: Request): Response {
 const handler = withRemixRequestHandlerObfuscation(baseHandler, obfuscator, {
   selectors: [".secret"],
   skipPathPatterns: [/^\/build\//, /^\/_data\//],
-  sendClientMapping: false,
 });
 
 console.log("[remix-adapter-example] http://localhost:8011/");

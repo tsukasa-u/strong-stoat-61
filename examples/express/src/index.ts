@@ -1,5 +1,5 @@
 import express from "express";
-import { FontObfuscator, preEncodeShuffled, type PrecomputedPage } from "../../../lib/index.ts";
+import { FontObfuscator, preEncodeShuffled } from "font-obfuscator";
 
 const app = express();
 const port = Number(process.env.PORT ?? 3000);
@@ -27,27 +27,21 @@ const BASE_HTML = `<!doctype html>
 </body>
 </html>`;
 
-let _rotatingEntryPromise: Promise<PrecomputedPage> | null = null;
-let _rotatingEntryCreatedAt = 0;
-const ROTATION_MS = 5 * 60 * 1000;
-
-function getPage(): Promise<PrecomputedPage> {
-  const now = Date.now();
-  if (!_rotatingEntryPromise || now - _rotatingEntryCreatedAt >= ROTATION_MS) {
-    _rotatingEntryCreatedAt = now;
-    _rotatingEntryPromise = obfuscator.precomputeHtml(BASE_HTML, [".secret"]).then((page) => {
-      const { encoded: preArr, indices: preIdx } = preEncodeShuffled(
-        Array.from({ length: 100 }, (_, i) => String(i)),
-        page.mapping,
-        { variants: page.variants },
-      );
-      page.puaHtml = page.puaHtml
-        .replace('var _pre=[]', `var _pre=${JSON.stringify(preArr)}`)
-        .replace('_preIdx=[]', `_preIdx=${JSON.stringify(preIdx)}`);
-      return page;
-    });
-  }
-  return _rotatingEntryPromise;
+// getRotatingPrecomputedPage handles rotation automatically; the callback
+// post-processes the page once per rotation to inject preEncodeShuffled arrays.
+function getPage() {
+  return obfuscator.getRotatingPrecomputedPage(BASE_HTML, [".secret"], "/").then((page) => {
+    if (!page.rawHtml.includes('var _pre=[]')) return page;
+    const { encoded: preArr, indices: preIdx } = preEncodeShuffled(
+      Array.from({ length: 100 }, (_, i) => String(i)),
+      page.mapping,
+      { variants: page.variants },
+    );
+    page.rawHtml = page.rawHtml
+      .replace('var _pre=[]', `var _pre=${JSON.stringify(preArr)}`)
+      .replace('_preIdx=[]', `_preIdx=${JSON.stringify(preIdx)}`);
+    return page;
+  });
 }
 
 app.get("/_obf/font/:token", async (req, res) => {
@@ -71,7 +65,6 @@ app.get("/", async (req, res) => {
   const html = await obfuscator.servePrecomputed(page, {
     pageKey: "/",
     clientFingerprint: `${(req.headers["x-forwarded-for"] ?? "").toString().split(",")[0].trim()}|${req.headers["user-agent"] ?? ""}`,
-    sendClientMapping: false,
   });
 
   res.setHeader("content-type", "text/html; charset=utf-8");

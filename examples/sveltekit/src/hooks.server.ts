@@ -1,5 +1,5 @@
 import type { Handle } from "@sveltejs/kit";
-import { FontObfuscator, preEncodeShuffled } from "../../../lib/index.ts";
+import { FontObfuscator, preEncodeShuffled } from "font-obfuscator";
 
 const obfuscator = new FontObfuscator({
   fontUrl:
@@ -31,12 +31,9 @@ export const handle: Handle = async ({ event, resolve }) => {
   );
   const preScript = `<script>var _pre=${JSON.stringify(preArr)},_preIdx=${JSON.stringify(preIdx)},c=0,el=document.getElementById('cnt')<\/script>`;
 
-  const ip = (event.request.headers.get("x-forwarded-for") ?? "").split(",")[0].trim();
-  const ua = event.request.headers.get("user-agent") ?? "";
   let html = await obfuscator.serveWithMapping(source, SELECTORS, pm, {
     pageKey: pathname,
-    clientFingerprint: `${ip}|${ua}`,
-    sendClientMapping: false,
+    clientFingerprint: obfuscator.getClientFingerprint(event.request),
   });
   html = html.replace("</body>", `${preScript}</body>`);
 

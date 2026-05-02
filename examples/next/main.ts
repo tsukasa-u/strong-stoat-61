@@ -5,7 +5,7 @@
  *   pnpm example:next
  */
 
-import { FontObfuscator, withNextRouteHandlerObfuscation } from "../../lib/index.ts";
+import { FontObfuscator, withNextRouteHandlerObfuscation } from "font-obfuscator";
 import { serveFetch } from "../../lib/nodeServer.ts";
 
 const FONT_URL =
@@ -34,7 +34,7 @@ function baseHandler(_req: Request): Response {
 const handler = withNextRouteHandlerObfuscation(baseHandler, obfuscator, {
   selectors: [".secret"],
   skipPathPatterns: [/^\/_next\//],
-  sendClientMapping: false,
+
 });
 
 console.log("[next-adapter-example] http://localhost:8010/");

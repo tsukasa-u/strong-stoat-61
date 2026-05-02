@@ -8,7 +8,7 @@
  *   pnpm example:fetch
  */
 
-import { FontObfuscator, withFetchObfuscation } from "../../lib/index.ts";
+import { FontObfuscator, withFetchObfuscation } from "font-obfuscator";
 import { serveFetch } from "../../lib/nodeServer.ts";
 
 const FONT_URL =
@@ -43,7 +43,6 @@ function baseHandler(_req: Request): Response {
 
 const handler = withFetchObfuscation(baseHandler, obfuscator, {
   selectors: [".secret"],
-  sendClientMapping: false,
 });
 
 console.log("[fetch-example] http://localhost:8003/");

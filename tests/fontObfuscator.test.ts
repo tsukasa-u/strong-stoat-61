@@ -94,7 +94,7 @@ it("obfuscateHtml removes protected plaintext from delivered html", async () => 
   });
 
   const html = "<html><head></head><body><p class='a'>Sensitive123</p><p id='secret'>TopSecret!</p></body></html>";
-  const out = await obf.obfuscateHtml(html, { selectors: [".a", "#secret"], observeMutations: true });
+  const out = await obf.obfuscateHtml(html, { selectors: [".a", "#secret"] });
 
   expect(out).not.toContain("Sensitive123");
   expect(out).not.toContain("TopSecret!");

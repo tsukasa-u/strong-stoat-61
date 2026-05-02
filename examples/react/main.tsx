@@ -7,7 +7,7 @@
  */
 
 import { renderToStaticMarkup } from "react-dom/server";
-import { FontObfuscator, preEncodeShuffled } from "../../lib/index.ts";
+import { FontObfuscator, preEncodeShuffled } from "font-obfuscator";
 import { serveFetch } from "../../lib/nodeServer.ts";
 
 const FONT_URL =
@@ -51,13 +51,9 @@ async function baseHandler(req: Request): Promise<Response> {
   );
   const preScript = `<script>var _pre=${JSON.stringify(preArr)},_preIdx=${JSON.stringify(preIdx)},c=0,el=document.getElementById('cnt')<\/script>`;
 
-  const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim();
-  const ua = req.headers.get("user-agent") ?? "";
-
   let html = await obfuscator.serveWithMapping(rawHtml, SELECTORS, pm, {
     pageKey: new URL(req.url).pathname,
-    clientFingerprint: `${ip}|${ua}`,
-    sendClientMapping: false,
+    clientFingerprint: obfuscator.getClientFingerprint(req),
   });
   html = html.replace("</body>", `${preScript}</body>`);
   return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });

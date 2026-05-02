@@ -806,7 +806,6 @@ function basePageHtml(): string {
       <span data-i18n="usageTitle"></span>
       <code>obfuscateHtml(html, {
   selectors: [".obf-target", "#secret"],
-  observeMutations: true,
 });</code>
     </section>
 

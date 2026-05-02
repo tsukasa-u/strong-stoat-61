@@ -6,7 +6,7 @@
  */
 
 import { Hono } from "hono";
-import { FontObfuscator, withHonoObfuscation } from "../../lib/index.ts";
+import { FontObfuscator, withHonoObfuscation } from "font-obfuscator";
 import { serveFetch } from "../../lib/nodeServer.ts";
 
 const FONT_URL =
@@ -42,7 +42,6 @@ app.get("/", (c) => {
 
 const wrappedFetch = withHonoObfuscation(app.fetch.bind(app), obfuscator, {
   selectors: [".secret"],
-  sendClientMapping: false,
 });
 
 console.log("[hono-example] http://localhost:8001/");

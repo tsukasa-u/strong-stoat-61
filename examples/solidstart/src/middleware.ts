@@ -1,5 +1,5 @@
 import { createMiddleware } from "@solidjs/start/middleware";
-import { preEncodeShuffled } from "../../../lib/index.ts";
+import { preEncodeShuffled } from "font-obfuscator";
 import { obfuscator } from "./utils/obfuscator.ts";
 
 const SELECTORS = [".secret"];
@@ -47,13 +47,9 @@ export default createMiddleware({
       if (!html.includes("<html")) return;
 
       const pm = await obfuscator.getRotatingMapping(html);
-      const ip = (event.request.headers.get("x-forwarded-for") ?? "").split(",")[0].trim();
-      const ua = event.request.headers.get("user-agent") ?? "";
-
       let result = await obfuscator.serveWithMapping(html, SELECTORS, pm, {
         pageKey: new URL(event.request.url).pathname,
-        clientFingerprint: `${ip}|${ua}`,
-        sendClientMapping: false,
+        clientFingerprint: obfuscator.getClientFingerprint(event.request),
       });
 
       // Inject pre-encoded counter values (shuffled order) so COUNT stays obfuscated client-side.

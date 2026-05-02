@@ -7,7 +7,7 @@
 
 import { createSSRApp, h } from "vue";
 import { renderToString } from "@vue/server-renderer";
-import { FontObfuscator, preEncodeShuffled } from "../../lib/index.ts";
+import { FontObfuscator, preEncodeShuffled } from "font-obfuscator";
 import { serveFetch } from "../../lib/nodeServer.ts";
 
 const FONT_URL =
@@ -21,9 +21,6 @@ const obfuscator = new FontObfuscator({
 const SELECTORS = [".secret"];
 
 async function baseHandler(req: Request): Promise<Response> {
-  const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim();
-  const ua = req.headers.get("user-agent") ?? "";
-
   const app = createSSRApp({
     render() {
       return h("div", { id: "app" }, [
@@ -47,8 +44,7 @@ async function baseHandler(req: Request): Promise<Response> {
 
   let html = await obfuscator.serveWithMapping(rawHtml, SELECTORS, pm, {
     pageKey: new URL(req.url).pathname,
-    clientFingerprint: `${ip}|${ua}`,
-    sendClientMapping: false,
+    clientFingerprint: obfuscator.getClientFingerprint(req),
   });
   html = html.replace("</body>", `${preScript}</body>`);
   return new Response(html, {

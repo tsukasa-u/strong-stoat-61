@@ -9,7 +9,7 @@ import {
   FontObfuscator,
   withSvelteKitHandleObfuscation,
   type SvelteKitEventLike,
-} from "../../lib/index.ts";
+} from "font-obfuscator";
 import { serveFetch } from "../../lib/nodeServer.ts";
 
 const FONT_URL =
@@ -28,7 +28,6 @@ const handle = withSvelteKitHandleObfuscation(
   {
     selectors: [".secret"],
     skipPathPatterns: [/^\/_app\//],
-    sendClientMapping: false,
   },
 );
 

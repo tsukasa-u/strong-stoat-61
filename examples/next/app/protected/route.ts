@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import {
   FontObfuscator,
   withNextRouteHandlerObfuscation,
-} from "../../../../lib/index.ts";
+} from "font-obfuscator";
 
 const obfuscator = new FontObfuscator({
   fontUrl:
@@ -22,7 +22,7 @@ const baseHandler = async () =>
     <button onclick="c++;el.textContent=c">Count</button>
     <button onclick="c=0;el.textContent=0">Reset</button>
   </div>
-  <p id="cnt" class="secret">0</p>
+  <p id="cnt">0</p>
   <script>var c=0,el=document.getElementById('cnt')<\/script>
 </body>
 </html>`,
@@ -32,5 +32,5 @@ const baseHandler = async () =>
 export const GET = withNextRouteHandlerObfuscation(baseHandler, obfuscator, {
   selectors: [".secret"],
   skipPathPatterns: [/^\/_next\//],
-  sendClientMapping: false,
+
 });

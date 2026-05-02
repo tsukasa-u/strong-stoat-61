@@ -5,7 +5,7 @@
  *   pnpm example:astro
  */
 
-import { FontObfuscator, withAstroEndpointObfuscation } from "../../lib/index.ts";
+import { FontObfuscator, withAstroEndpointObfuscation } from "font-obfuscator";
 import { serveFetch } from "../../lib/nodeServer.ts";
 
 const FONT_URL =
@@ -34,7 +34,6 @@ function baseHandler(_req: Request): Response {
 const handler = withAstroEndpointObfuscation(baseHandler, obfuscator, {
   selectors: [".secret"],
   skipPathPatterns: [/^\/_astro\//],
-  sendClientMapping: false,
 });
 
 console.log("[astro-adapter-example] http://localhost:8012/");

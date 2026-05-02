@@ -1,4 +1,4 @@
-import { FontObfuscator } from "../../../../lib/index.ts";
+import { FontObfuscator } from "font-obfuscator";
 
 /**
  * Shared FontObfuscator singleton for SolidStart server hooks.

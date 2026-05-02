@@ -1,6 +1,6 @@
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
-import { FontObfuscator, preEncodeShuffled } from "../../../lib/index.ts";
+import { FontObfuscator, preEncodeShuffled } from "font-obfuscator";
 
 const obfuscator = new FontObfuscator({
   fontUrl:
@@ -41,13 +41,9 @@ app.get("/", async (c) => {
   );
   const preScript = `<script>var _pre=${JSON.stringify(preArr)},_preIdx=${JSON.stringify(preIdx)},c=0,el=document.getElementById('cnt')<\/script>`;
 
-  const ip = (c.req.header("x-forwarded-for") ?? "").split(",")[0].trim();
-  const ua = c.req.header("user-agent") ?? "";
-
   let html = await obfuscator.serveWithMapping(BASE_HTML, SELECTORS, pm, {
     pageKey: "/",
-    clientFingerprint: `${ip}|${ua}`,
-    sendClientMapping: false,
+    clientFingerprint: obfuscator.getClientFingerprint(c.req.raw),
   });
   html = html.replace("</body>", `${preScript}</body>`);
   return c.html(html, 200, { "cache-control": "no-store" });

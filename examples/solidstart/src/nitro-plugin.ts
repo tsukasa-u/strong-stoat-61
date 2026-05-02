@@ -1,4 +1,4 @@
-import { preEncodeShuffled } from "../../../lib/index.ts";
+import { preEncodeShuffled } from "font-obfuscator";
 import { obfuscator } from "./utils/obfuscator.ts";
 
 const SELECTORS = [".secret"];
@@ -19,7 +19,6 @@ export default defineNitroPlugin((nitroApp) => {
     response.body = await obfuscator.serveWithMapping(response.body, SELECTORS, pm, {
       pageKey: event.path,
       clientFingerprint: `${ip}|${ua}`,
-      sendClientMapping: false,
     });
 
     // Inject pre-encoded counter values (shuffled order) so COUNT stays obfuscated client-side.

@@ -1,0 +1,14 @@
+{
+  "name": "font-obfuscator-bun-example",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "start": "bun run main.ts"
+  },
+  "dependencies": {
+    "font-obfuscator": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

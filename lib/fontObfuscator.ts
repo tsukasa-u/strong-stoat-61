@@ -11,6 +11,12 @@ export interface FontObfuscatorOptions {
    */
   fontUrl: string;
   fontRoutePrefix?: string;
+  /**
+   * How long (ms) font tickets remain in the server's in-memory registry.
+   * Tickets are one-time-use and also have their own shorter TTL (`fontUrlTtlMs`),
+   * so this mainly controls how long the ticket map grows before garbage collection.
+   * @default 3_600_000 (1 hour)
+   */
   sessionTtlMs?: number;
   /**
    * TTL (ms) of one-time font URLs issued in HTML.
@@ -24,7 +30,19 @@ export interface FontObfuscatorOptions {
    * @default "block"
    */
   fontDisplay?: "auto" | "block" | "swap" | "fallback" | "optional";
+  /**
+   * Characters to include in the scrambled font.
+   * Defaults to printable ASCII + hiragana + katakana + full-width alphanumerics.
+   * Extend this if your content contains characters outside the default set
+   * (e.g. kanji, Latin Extended, currency symbols).
+   */
   alphabet?: string[];
+  /**
+   * Show a floating panel listing characters that appear in the selected
+   * elements but are not covered by the font mapping.  Useful during
+   * development to identify characters to add to `alphabet`.
+   * @default false
+   */
   devMode?: boolean;
   /**
    * Number of PUA variants to allocate for numeric glyphs (0-9, full-width 0-9).
@@ -51,34 +69,52 @@ export interface FontObfuscatorOptions {
 }
 
 export interface ObfuscateHtmlOptions {
+  /** CSS selectors whose contained text nodes will be PUA-encoded (e.g. `[".secret", "#price"]`). */
   selectors: string[];
+  /** Override the generated `font-family` name injected into the `@font-face` rule. */
   fontFamilyName?: string;
-  /** @deprecated Client-side MutationObserver obfuscation has been removed. This field is ignored. */
-  observeMutations?: boolean;
-  devMode?: boolean;
-  pageKey?: string;
-  clientFingerprint?: string;
   /**
-   * @deprecated The XOR-encoded client mapping is no longer sent to the browser.
-   * All obfuscation is server-side only. Use {@link preEncodeShuffled} for dynamic values.
-   * This field is silently ignored.
+   * Show a floating dev panel listing any characters that appear inside the
+   * selected elements but are not covered by the font mapping.
+   * Overrides the instance-level `devMode` for this call.
    */
-  sendClientMapping?: boolean;
+  devMode?: boolean;
+  /**
+   * Logical page identifier used to namespace font tickets.
+   * Default: `"/"`.
+   */
+  pageKey?: string;
+  /**
+   * Opaque string that binds the font ticket to this client so it cannot be
+   * replayed from a different browser session.  Obtain via
+   * {@link FontObfuscator.getClientFingerprint}.
+   */
+  clientFingerprint?: string;
 }
 
 /**
  * The result of {@link FontObfuscator.precomputeHtml}.
- * Holds the raw HTML and the precomputed mapping needed to inject a fresh
+ * Holds the raw HTML template and the stable mapping used to inject a fresh
  * per-request font ticket via {@link FontObfuscator.servePrecomputed}.
- * The HTML is re-obfuscated on every {@link FontObfuscator.servePrecomputed} call
+ * Text is re-obfuscated on every {@link FontObfuscator.servePrecomputed} call
  * so that digit-variant codepoints differ between responses.
+ *
+ * **Template injection** (e.g. `preEncodeShuffled` counter values): patch
+ * `rawHtml` directly before storing the page object, since
+ * `servePrecomputed` always starts from `rawHtml`.
  */
 export interface PrecomputedPage {
-  /** The original HTML passed to precomputeHtml; re-obfuscated per request in servePrecomputed. */
+  /**
+   * The original HTML passed to `precomputeHtml`.  This is the template
+   * re-obfuscated on every `servePrecomputed` call.
+   *
+   * Inject `preEncodeShuffled` values by replacing placeholder tokens in
+   * `rawHtml` before caching the page object.
+   */
   rawHtml: string;
   /**
-   * @deprecated Pre-encoded HTML is no longer used by servePrecomputed.
-   * Use rawHtml instead; kept for backward compatibility.
+   * @deprecated No longer used by `servePrecomputed` (which starts from
+   * `rawHtml`).  Retained for backward compatibility only.
    */
   puaHtml: string;
   /** The seed used to build the mapping (fixed for the server lifetime). */
@@ -94,13 +130,12 @@ export interface PrecomputedPage {
 }
 
 export interface ServePrecomputedOptions {
+  /** Same as {@link ObfuscateHtmlOptions.pageKey}. */
   pageKey?: string;
+  /** Same as {@link ObfuscateHtmlOptions.clientFingerprint}. */
   clientFingerprint?: string;
-  /** @deprecated Client-side MutationObserver obfuscation has been removed. This field is ignored. */
-  observeMutations?: boolean;
+  /** Override the generated `font-family` name. */
   fontFamilyName?: string;
-  /** @deprecated The XOR-encoded client mapping is no longer sent. This field is silently ignored. */
-  sendClientMapping?: boolean;
 }
 
 /**
@@ -651,21 +686,31 @@ function safeCssStringLiteral(value: string): string {
 }
 
 /**
- * Core obfuscation engine.  A single instance is shared across all requests
- * in a process.
+ * Core obfuscation engine.  Create **one instance per process** and share it
+ * across all requests.
  *
+ * ---
+ * ### Which API to use?
+ *
+ * | Scenario | API |
+ * |---|---|
+ * | Low-traffic or fully dynamic HTML | `obfuscateHtml()` — simplest, one call per request |
+ * | Static HTML template (Express, Fastify, Hono) | `precomputeHtml()` + `getRotatingPrecomputedPage()` + `servePrecomputed()` |
+ * | Dynamic SSR body (Nuxt, SolidStart) | `precomputeMapping()` + `getRotatingMapping()` + `serveWithMapping()` |
+ * | Framework middleware | adapter helpers in `lib/adapters.ts` |
+ *
+ * All patterns serve font files automatically — call `maybeHandleFontRequest()`
+ * (or use an adapter) in your router and the library handles the rest.
+ *
+ * ---
  * **Multi-process / cluster deployments:** each worker process has its own
  * `FontObfuscator` instance with independent state.  The per-IP rate limiter
- * (`fontGate`) is therefore **not shared** across workers — the effective
- * request cap per IP is `20 × workerCount`.  If stricter limiting is required,
- * place a shared reverse-proxy (nginx / Cloudflare) rate-limit in front of the
- * application, or use a Redis-backed adapter.
+ * is therefore **not shared** across workers.  For stricter per-IP limits use
+ * a shared reverse-proxy (nginx / Cloudflare) rate-limiter in front of the app.
  *
- * **Content-Security-Policy:** this library does not set a `Content-Security-Policy`
- * response header.  It is strongly recommended that the host application sets a
- * CSP that at minimum includes `default-src 'self'` and `font-src 'self'` (plus
- * the font route prefix if served from a different path).  Not doing so exposes
- * the application to XSS attacks that can trivially bypass the obfuscation.
+ * **Content-Security-Policy:** this library does not set CSP headers.  It is
+ * strongly recommended to add at minimum `default-src 'self'` and
+ * `font-src 'self'` so that XSS cannot trivially bypass the obfuscation.
  */
 export class FontObfuscator {
   private readonly fontUrl: string;
@@ -688,6 +733,7 @@ export class FontObfuscator {
   private readonly scrambleCacheMaxSize = 10;
   private readonly fontGateMaxSize = 50_000;
   private readonly fontTicketsMaxSize = 200_000;
+  private readonly rotatingPageMapMaxSize = 50;
   private readonly digitVariantCount: number;
   private readonly trustedProxies: string[] | undefined;
   private lastCleanupAt = 0;
@@ -825,10 +871,20 @@ export class FontObfuscator {
   }
 
   /**
-   * Encode all text inside `selectors` to PUA characters at startup time.
-   * Store the returned {@link PrecomputedPage} at module scope and pass it
-   * to {@link servePrecomputed} on every request to inject only a fresh
-   * per-request font ticket, avoiding repeated text-encoding work.
+   * Precompute the stable seed + mapping for a **static HTML template**.
+   * Call once at startup (and on each rotation via `getRotatingPrecomputedPage`),
+   * then call `servePrecomputed` on every request to inject only a fresh
+   * per-request font ticket, avoiding per-request font-building work.
+   *
+   * **Injecting `preEncodeShuffled` values:** after receiving the page, patch
+   * `page.rawHtml` with encoded counter/price arrays before caching:
+   * ```ts
+   * const page = await obfuscator.precomputeHtml(BASE_HTML, [".secret"]);
+   * const { encoded, indices } = preEncodeShuffled(values, page.mapping);
+   * page.rawHtml = page.rawHtml
+   *   .replace('var _pre=[]', `var _pre=${JSON.stringify(encoded)}`)
+   *   .replace('_preIdx=[]',  `_preIdx=${JSON.stringify(indices)}`);
+   * ```
    */
   async precomputeHtml(html: string, selectors: string[]): Promise<PrecomputedPage> {
     const normalizedSelectors = normalizeSelectors(selectors);
@@ -866,20 +922,22 @@ export class FontObfuscator {
   }
 
   /**
-   * Per-request companion to {@link precomputeMapping}.
-   * Encodes `html` with the precomputed mapping, then injects a fresh
-   * one-time font ticket (`<style>` + `<script>`) for this request.
+   * Per-request companion to {@link precomputeMapping} / {@link getRotatingMapping}.
+   * PUA-encodes `html` with the precomputed mapping and injects a fresh
+   * one-time font ticket (`<style>`) for this request.
    *
-   * Usage (Nuxt / SolidStart Nitro plugin):
+   * Use this when the HTML body is generated dynamically per-request
+   * (Nuxt, SolidStart) and cannot be pre-encoded at startup.
+   *
+   * @example
    * ```ts
-   * // Once at startup:
-   * const _mapping = obfuscator.precomputeMapping();
+   * // Once at startup (or per rotation):
+   * const pm = await obfuscator.getRotatingMapping(hintHtml);
    *
-   * // In render:response hook:
-   * const pm = await _mapping;
-   * response.body = await obfuscator.serveWithMapping(response.body, selectors, pm, {
+   * // Per request (e.g. Nitro render:response hook):
+   * response.body = await obfuscator.serveWithMapping(response.body, [".secret"], pm, {
    *   pageKey: event.path,
-   *   clientFingerprint: `${ip}|${ua}`,
+   *   clientFingerprint: obfuscator.getClientFingerprint(event.node.req as unknown as Request),
    * });
    * ```
    */
@@ -920,21 +978,16 @@ export class FontObfuscator {
   }
 
   /**
-   * Inject a fresh per-request font ticket into a {@link PrecomputedPage}.
-   * The PUA-encoded text is already in `page.puaHtml`; this method only
-   * creates the font URL and injects the `<style>` + `<script>` tags.
-   *
-   * Dynamic text added via MutationObserver is still obfuscated because the
-   * mapping is sent to the client — PUA characters already in the HTML simply
-   * pass through unchanged (they are not in the mapping's key set).
-   */
-  /**
-   * Returns the current rotating mapping. A new mapping is generated after
-   * `mappingRotationIntervalMs` (default 5 min), limiting how long any
+   * Returns the current rotating mapping, regenerating it after
+   * `mappingRotationIntervalMs` (default 2 min).  Rotation limits how long a
    * captured `_pre` array or downloaded font file remains exploitable.
    *
    * Call this **per-request** in SSR handlers instead of caching
    * `precomputeMapping()` at module scope.
+   *
+   * @param hintHtml Optional HTML snippet whose characters are added to the
+   *   alphabet so they are guaranteed to be mapped even before the first real
+   *   request arrives.
    */
   getRotatingMapping(hintHtml?: string): Promise<PrecomputedMapping> {
     const now = Date.now();
@@ -955,16 +1008,16 @@ export class FontObfuscator {
   }
 
   /**
-   * Returns the current rotating precomputed page for static HTML.
+   * Returns the current rotating precomputed page for a **static HTML template**.
    * Re-runs `precomputeHtml` after `mappingRotationIntervalMs` so that
-   * old fonts and cached HTML become useless after each rotation window.
+   * old fonts and captured HTML become useless after each rotation window.
    *
-   * @param html  The static HTML template (re-evaluated only on rotation).
-   * @param selectors  CSS selectors to obfuscate.
+   * Pass the result to `servePrecomputed` on every request.
+   *
+   * @param html  The static HTML template (only re-evaluated on rotation).
+   * @param selectors  CSS selectors whose text nodes should be obfuscated.
    * @param key  Cache key for distinguishing multiple pages (default `""`).
    */
-  private readonly rotatingPageMapMaxSize = 50;
-
   getRotatingPrecomputedPage(
     html: string,
     selectors: string[],
@@ -991,6 +1044,16 @@ export class FontObfuscator {
     return this.rotatingPageMap.get(key)!.page;
   }
 
+  /**
+   * Per-request companion to `precomputeHtml` / `getRotatingPrecomputedPage`.
+   * Injects a fresh one-time font ticket into the precomputed page and
+   * re-obfuscates the text with a new random digit-variant seed so each
+   * response looks different even within the same rotation window.
+   *
+   * Starts from `page.rawHtml` on every call; any template replacements
+   * (e.g. `preEncodeShuffled` arrays) must be applied to `page.rawHtml`
+   * before the page object is cached (see `precomputeHtml` JSDoc).
+   */
   async servePrecomputed(page: PrecomputedPage, options: ServePrecomputedOptions = {}): Promise<string> {
     const { rawHtml, puaHtml, seed, candidateAlphabet, mapping, variants, selectors } = page;
     if (selectors.length === 0) return rawHtml ?? puaHtml;
@@ -1018,6 +1081,17 @@ export class FontObfuscator {
     return out;
   }
 
+  /**
+   * All-in-one per-request obfuscation for **fully dynamic HTML**.
+   *
+   * Builds a fresh font + mapping on every call.  For static templates or
+   * SSR frameworks use `getRotatingPrecomputedPage` + `servePrecomputed` or
+   * `getRotatingMapping` + `serveWithMapping` instead to avoid redundant
+   * font-build work on each request.
+   *
+   * @param html - The full HTML string to obfuscate.
+   * @param options - Must include `selectors` (e.g. `[".secret", "#price"]`).
+   */
   async obfuscateHtml(
     html: string,
     options: ObfuscateHtmlOptions,
