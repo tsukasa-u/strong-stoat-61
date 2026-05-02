@@ -8,6 +8,18 @@ export interface FontObfuscatorOptions {
   fontUrl: string;
   fontRoutePrefix?: string;
   sessionTtlMs?: number;
+  /**
+   * TTL (ms) of one-time font URLs issued in HTML.
+   * Increase this if first-load network latency causes occasional font fetch expiry.
+   * @default 30_000
+   */
+  fontUrlTtlMs?: number;
+  /**
+   * `font-display` strategy used in injected @font-face rules.
+   * `block` avoids immediate tofu/fallback rendering during first paint.
+   * @default "block"
+   */
+  fontDisplay?: "auto" | "block" | "swap" | "fallback" | "optional";
   alphabet?: string[];
   devMode?: boolean;
   /**
@@ -132,7 +144,7 @@ interface ScrambleResult {
 
 const DEFAULT_FONT_ROUTE_PREFIX = "/_obf/font";
 const DEFAULT_SESSION_TTL_MS = 60 * 60 * 1000;
-const DEFAULT_FONT_URL_TTL_MS = 5 * 1000;
+const DEFAULT_FONT_URL_TTL_MS = 30 * 1000;
 const DEFAULT_FONT_GATE_WINDOW_MS = 60 * 1000;
 const DEFAULT_FONT_GATE_MAX_PER_WINDOW = 20;
 const DEFAULT_FONT_GATE_BLOCK_AFTER_FAILURES = 5;
@@ -143,6 +155,7 @@ const MAX_MAPPABLE_CHARS = PUA_END - PUA_START + 1;
 const DEFAULT_DIGIT_VARIANT_COUNT = 4;
 const MAX_DIGIT_VARIANT_COUNT = 16;
 const DEFAULT_MAPPING_ROTATION_INTERVAL_MS = 2 * 60 * 1000;
+const FONT_DISPLAY_VALUES = new Set(["auto", "block", "swap", "fallback", "optional"]);
 
 const DIGIT_VARIANT_TARGETS = new Set([
   "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
@@ -186,7 +199,17 @@ function defaultAlphabet(): string[] {
 }
 
 function extractTextCharsFromHtml(html: string): string[] {
-  const stripped = html
+  // Also extract characters from user-visible attribute values (placeholder, aria-label, alt, title).
+  // These are rendered to the user but live inside tags, so the strip-tags pass below would miss them.
+  // Characters appearing only in these attributes must still be included in the font alphabet.
+  const attrRe = /\b(?:placeholder|aria-label|aria-placeholder|title|alt)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
+  let attrText = "";
+  let attrMatch: RegExpExecArray | null;
+  while ((attrMatch = attrRe.exec(html)) !== null) {
+    attrText += (attrMatch[1] ?? attrMatch[2] ?? "") + " ";
+  }
+
+  const stripped = attrText + html
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
     .replace(/<textarea\b[^>]*>[\s\S]*?<\/textarea>/gi, " ")
@@ -564,7 +587,23 @@ function obfuscateSelectorScopeHtml(
 
 function injectBeforeEndTag(html: string, tag: string, injection: string): string {
   const needle = `</${tag}>`;
-  const idx = html.toLowerCase().lastIndexOf(needle);
+  const lowerHtml = html.toLowerCase();
+  // Build a list of byte ranges that are inside <script> or <style> blocks so we
+  // never match a closing tag that appears as a string literal in JavaScript.
+  const noParseRanges: Array<[number, number]> = [];
+  const noParseRe = /<(?:script|style)\b[^>]*>[\s\S]*?<\/(?:script|style)>/gi;
+  let npm: RegExpExecArray | null;
+  while ((npm = noParseRe.exec(html)) !== null) {
+    noParseRanges.push([npm.index, npm.index + npm[0].length]);
+  }
+
+  let idx = lowerHtml.lastIndexOf(needle);
+  while (idx !== -1) {
+    const inside = noParseRanges.some(([start, end]) => idx >= start && idx < end);
+    if (!inside) break;
+    idx = lowerHtml.lastIndexOf(needle, idx - 1);
+  }
+
   if (idx === -1) return html + injection;
   return html.slice(0, idx) + injection + html.slice(idx);
 }
@@ -584,6 +623,7 @@ export class FontObfuscator {
   private readonly fontRoutePrefix: string;
   private readonly sessionTtlMs: number;
   private readonly fontUrlTtlMs: number;
+  private readonly fontDisplay: "auto" | "block" | "swap" | "fallback" | "optional";
   private readonly alphabet: string[];
   private readonly devMode: boolean;
   private readonly hmacSecret: Uint8Array;
@@ -601,6 +641,8 @@ export class FontObfuscator {
   private readonly fontTicketsMaxSize = 200_000;
   private readonly digitVariantCount: number;
   private readonly trustedProxies: string[] | undefined;
+  private lastCleanupAt = 0;
+  private readonly recentSeeds = new Set<number>();
 
   constructor(options: FontObfuscatorOptions) {
     this.fontUrl = options.fontUrl;
@@ -614,7 +656,13 @@ export class FontObfuscator {
     }
     this.fontRoutePrefix = prefix;
     this.sessionTtlMs = options.sessionTtlMs ?? DEFAULT_SESSION_TTL_MS;
-    this.fontUrlTtlMs = Math.min(this.sessionTtlMs, DEFAULT_FONT_URL_TTL_MS);
+    const requestedFontUrlTtlMs = options.fontUrlTtlMs ?? DEFAULT_FONT_URL_TTL_MS;
+    this.fontUrlTtlMs = Math.max(1000, Math.min(this.sessionTtlMs, requestedFontUrlTtlMs));
+    const requestedFontDisplay = options.fontDisplay ?? "block";
+    if (!FONT_DISPLAY_VALUES.has(requestedFontDisplay)) {
+      throw new Error(`fontDisplay must be one of auto|block|swap|fallback|optional, got: ${requestedFontDisplay}`);
+    }
+    this.fontDisplay = requestedFontDisplay;
     this.alphabet = options.alphabet ?? defaultAlphabet();
     this.devMode = options.devMode ?? false;
     this.digitVariantCount = Math.max(
@@ -723,7 +771,7 @@ export class FontObfuscator {
       return { rawHtml: html, puaHtml: html, seed: 0, candidateAlphabet: [], mapping: {}, variants: {}, selectors: [] };
     }
     const candidateAlphabet = this.buildCandidateAlphabet(html);
-    const seed = secureRandU32();
+    const seed = this.generateFreshSeed();
     const { mapping, variants } = await this.scrambleFont(seed, candidateAlphabet);
     const puaHtml = obfuscateSelectorScopeHtml(
       html,
@@ -747,7 +795,7 @@ export class FontObfuscator {
     const candidateAlphabet = hintHtml
       ? this.buildCandidateAlphabet(hintHtml)
       : [...this.alphabet];
-    const seed = secureRandU32();
+    const seed = this.generateFreshSeed();
     const { mapping, variants } = await this.scrambleFont(seed, candidateAlphabet);
     return { seed, mapping, variants, candidateAlphabet };
   }
@@ -793,7 +841,7 @@ export class FontObfuscator {
 
     const family = options.fontFamilyName ?? `Obf_${ticket.token.slice(0, 8)}`;
     const fontUrl = `${this.fontRoutePrefix}/${ticket.token}?exp=${ticket.expiry}&sig=${ticket.sig}`;
-    const style = `<style>@font-face{font-family:${safeCssStringLiteral(family)};src:url("${fontUrl}") format("truetype");}${normalizedSelectors.join(",")}{font-family:${safeCssStringLiteral(family)},sans-serif !important;}</style>`;
+    const style = `<style>@font-face{font-family:${safeCssStringLiteral(family)};src:url("${fontUrl}") format("truetype");font-display:${this.fontDisplay};}${normalizedSelectors.join(",")}{font-family:${safeCssStringLiteral(family)},sans-serif !important;}</style>`;
 
     let out = obfuscateSelectorScopeHtml(
       html,
@@ -895,7 +943,7 @@ export class FontObfuscator {
 
     const family = options.fontFamilyName ?? `Obf_${ticket.token.slice(0, 8)}`;
     const fontUrl = `${this.fontRoutePrefix}/${ticket.token}?exp=${ticket.expiry}&sig=${ticket.sig}`;
-    const style = `<style>@font-face{font-family:${safeCssStringLiteral(family)};src:url("${fontUrl}") format("truetype");}${selectors.join(",")}{font-family:${safeCssStringLiteral(family)},sans-serif !important;}</style>`;
+    const style = `<style>@font-face{font-family:${safeCssStringLiteral(family)};src:url("${fontUrl}") format("truetype");font-display:${this.fontDisplay};}${selectors.join(",")}{font-family:${safeCssStringLiteral(family)},sans-serif !important;}</style>`;
 
     // Re-obfuscate per request with a fresh variantSeed so digit-variant
     // codepoints differ between responses within the same rotation window.
@@ -924,7 +972,10 @@ export class FontObfuscator {
       candidateAlphabet,
       clientFingerprint: normalizeClientFingerprint(options.clientFingerprint),
     });
-    const { mapping, variants } = await this.scrambleFont(ticket.seed, candidateAlphabet);
+    // Use the uncached path: obfuscateHtml generates a new seed every call so
+    // the scrambleCache would never hit, and sharing the cache would evict
+    // entries used by the precomputed rotation path.
+    const { mapping, variants } = await this.buildScramble(ticket.seed, candidateAlphabet);
 
     const devMode = options.devMode ?? this.devMode;
     let unmappedChars: Set<string> | null = null;
@@ -934,7 +985,7 @@ export class FontObfuscator {
 
     const family = options.fontFamilyName ?? `Obf_${ticket.token.slice(0, 8)}`;
     const fontUrl = `${this.fontRoutePrefix}/${ticket.token}?exp=${ticket.expiry}&sig=${ticket.sig}`;
-    const style = `<style>@font-face{font-family:${safeCssStringLiteral(family)};src:url("${fontUrl}") format("truetype");}${selectors.join(",")}{font-family:${safeCssStringLiteral(family)},sans-serif !important;}</style>`;
+    const style = `<style>@font-face{font-family:${safeCssStringLiteral(family)};src:url("${fontUrl}") format("truetype");font-display:${this.fontDisplay};}${selectors.join(",")}{font-family:${safeCssStringLiteral(family)},sans-serif !important;}</style>`;
 
     let out = obfuscateSelectorScopeHtml(html, selectors, mapping, variants, secureRandU32());
     out = injectBeforeEndTag(out, "head", style);
@@ -1113,6 +1164,10 @@ export class FontObfuscator {
         .split(",")[0]
         .trim();
     }
+    if (this.trustedProxies.length === 0) {
+      // Explicit hardening mode: ignore all forwarded-IP headers.
+      return "";
+    }
     // Trusted-proxy mode: walk XFF right-to-left, return first non-trusted IP.
     // Cloudflare's dedicated header takes priority when set and non-trusted.
     const cfIp = headers.get("cf-connecting-ip") ?? "";
@@ -1126,7 +1181,7 @@ export class FontObfuscator {
     return "";
   }
 
-  private getClientFingerprint(req: Request): string {
+  getClientFingerprint(req: Request): string {
     const ua = req.headers.get("user-agent") ?? "";
     const ip = this.extractClientIp(req.headers);
     return `${ip}|${ua}`;
@@ -1195,6 +1250,9 @@ export class FontObfuscator {
   }
 
   private cleanupState(now: number): void {
+    // Throttle to at most once every 30 s to avoid an O(n) scan on every request.
+    if (now - this.lastCleanupAt < 30_000) return;
+    this.lastCleanupAt = now;
     for (const [token, ticket] of this.fontTickets) {
       if (ticket.expiry < now || ticket.used) this.fontTickets.delete(token);
     }
@@ -1204,10 +1262,37 @@ export class FontObfuscator {
     }
   }
 
+  /**
+   * Return a securely random U32 seed that has not been used in the last 1000
+   * rotations, so consecutive rotations always produce a distinct mapping.
+   */
+  private generateFreshSeed(): number {
+    let seed: number;
+    do {
+      seed = secureRandU32();
+    } while (this.recentSeeds.has(seed));
+    this.recentSeeds.add(seed);
+    if (this.recentSeeds.size > 1000) {
+      const oldest = this.recentSeeds.values().next().value;
+      if (oldest !== undefined) this.recentSeeds.delete(oldest);
+    }
+    return seed;
+  }
+
   private loadSourceFont(): Promise<any> {
     if (!this.srcFontPromise) {
       const p = (async () => {
-        const res = await fetch(this.fontUrl);
+        const ac = new AbortController();
+        const fetchTimer = setTimeout(
+          () => ac.abort(new Error("font fetch timed out after 30 s")),
+          30_000,
+        );
+        let res: Response;
+        try {
+          res = await fetch(this.fontUrl, { signal: ac.signal });
+        } finally {
+          clearTimeout(fetchTimer);
+        }
         if (!res.ok) throw new Error(`failed to fetch font: ${res.status}`);
         let bytes = new Uint8Array(await res.arrayBuffer());
 
@@ -1234,6 +1319,91 @@ export class FontObfuscator {
     return this.srcFontPromise;
   }
 
+  /** Build a scrambled font. Called by scrambleFont (cached path) and obfuscateHtml (uncached path). */
+  private async buildScramble(seed: number, candidateAlphabet: string[]): Promise<ScrambleResult> {
+    const srcFont = await this.loadSourceFont();
+
+    const usable: string[] = [];
+    for (const ch of candidateAlphabet) {
+      const gid = srcFont.charToGlyphIndex(ch);
+      if (gid && gid !== 0) usable.push(ch);
+    }
+    if (usable.length === 0) {
+      throw new Error("no usable glyphs in source font for alphabet");
+    }
+    if (usable.length > MAX_MAPPABLE_CHARS) {
+      usable.length = MAX_MAPPABLE_CHARS;
+    }
+
+    const puaPool: number[] = [];
+    for (let i = 0; i < MAX_MAPPABLE_CHARS; i++) puaPool.push(PUA_START + i);
+    shuffle(puaPool, mulberry32(seed));
+
+    const Glyph: any = (opentype as any).Glyph;
+    const Path: any = (opentype as any).Path;
+    const Font: any = (opentype as any).Font;
+
+    const notdefSrc = srcFont.glyphs.get(0);
+    const notdef = new Glyph({
+      name: ".notdef",
+      unicode: 0,
+      advanceWidth: notdefSrc?.advanceWidth ?? srcFont.unitsPerEm,
+      path: notdefSrc?.path ?? new Path(),
+    });
+
+    const newGlyphs: any[] = [notdef];
+    const mapping: Record<string, number> = {};
+    const variants: Record<string, number[]> = {};
+
+    // First pass: assign one primary codepoint to every usable character.
+    let puaIdx = 0;
+    for (let i = 0; i < usable.length; i++) {
+      const ch = usable[i];
+      const pua = puaPool[puaIdx++];
+      mapping[ch] = pua;
+      variants[ch] = [pua];
+    }
+
+    // Second pass: allocate additional variants for numeric glyphs.
+    if (this.digitVariantCount > 1) {
+      for (const ch of usable) {
+        if (!DIGIT_VARIANT_TARGETS.has(ch)) continue;
+        const bucket = variants[ch];
+        while (bucket.length < this.digitVariantCount && puaIdx < puaPool.length) {
+          bucket.push(puaPool[puaIdx++]);
+        }
+      }
+    }
+
+    for (let i = 0; i < usable.length; i++) {
+      const ch = usable[i];
+      const srcGlyph = srcFont.charToGlyph(ch);
+      for (let v = 0; v < variants[ch].length; v++) {
+        const pua = variants[ch][v];
+        newGlyphs.push(new Glyph({
+          // Opaque deterministic name: never reveals the original character.
+          // Prevents fonttools / name-table attacks that map PUA → glyph name → original char.
+          name: `g${toHex32(Math.imul((seed ^ i ^ v) + 0x9e3779b9, pua + 0x6c62272e) >>> 0)}`,
+          unicode: pua,
+          advanceWidth: srcGlyph.advanceWidth,
+          path: srcGlyph.path,
+        }));
+      }
+    }
+
+    const newFont = new Font({
+      familyName: "Obfuscated",
+      styleName: "Regular",
+      unitsPerEm: srcFont.unitsPerEm,
+      ascender: srcFont.ascender,
+      descender: srcFont.descender,
+      glyphs: newGlyphs,
+    });
+
+    const ab: ArrayBuffer = newFont.toArrayBuffer();
+    return { fontBytes: new Uint8Array(ab), mapping, variants };
+  }
+
   private scrambleFont(seed: number, candidateAlphabet: string[]): Promise<ScrambleResult> {
     const cacheKey = `${seed}:${candidateAlphabet.length}:${hashCharList(candidateAlphabet)}:${this.digitVariantCount}`;
     const cached = this.scrambleCache.get(cacheKey);
@@ -1245,90 +1415,7 @@ export class FontObfuscator {
       if (oldest !== undefined) this.scrambleCache.delete(oldest);
     }
 
-    const p = (async (): Promise<ScrambleResult> => {
-      const srcFont = await this.loadSourceFont();
-
-      const usable: string[] = [];
-      for (const ch of candidateAlphabet) {
-        const gid = srcFont.charToGlyphIndex(ch);
-        if (gid && gid !== 0) usable.push(ch);
-      }
-      if (usable.length === 0) {
-        throw new Error("no usable glyphs in source font for alphabet");
-      }
-      if (usable.length > MAX_MAPPABLE_CHARS) {
-        usable.length = MAX_MAPPABLE_CHARS;
-      }
-
-      const puaPool: number[] = [];
-      for (let i = 0; i < MAX_MAPPABLE_CHARS; i++) puaPool.push(PUA_START + i);
-      shuffle(puaPool, mulberry32(seed));
-
-      const Glyph: any = (opentype as any).Glyph;
-      const Path: any = (opentype as any).Path;
-      const Font: any = (opentype as any).Font;
-
-      const notdefSrc = srcFont.glyphs.get(0);
-      const notdef = new Glyph({
-        name: ".notdef",
-        unicode: 0,
-        advanceWidth: notdefSrc?.advanceWidth ?? srcFont.unitsPerEm,
-        path: notdefSrc?.path ?? new Path(),
-      });
-
-      const newGlyphs: any[] = [notdef];
-      const mapping: Record<string, number> = {};
-      const variants: Record<string, number[]> = {};
-
-      // First pass: assign one primary codepoint to every usable character.
-      let puaIdx = 0;
-      for (let i = 0; i < usable.length; i++) {
-        const ch = usable[i];
-        const pua = puaPool[puaIdx++];
-        mapping[ch] = pua;
-        variants[ch] = [pua];
-      }
-
-      // Second pass: allocate additional variants for numeric glyphs.
-      if (this.digitVariantCount > 1) {
-        for (const ch of usable) {
-          if (!DIGIT_VARIANT_TARGETS.has(ch)) continue;
-          const bucket = variants[ch];
-          while (bucket.length < this.digitVariantCount && puaIdx < puaPool.length) {
-            bucket.push(puaPool[puaIdx++]);
-          }
-        }
-      }
-
-      for (let i = 0; i < usable.length; i++) {
-        const ch = usable[i];
-        const srcGlyph = srcFont.charToGlyph(ch);
-        for (let v = 0; v < variants[ch].length; v++) {
-          const pua = variants[ch][v];
-          newGlyphs.push(new Glyph({
-            // Opaque deterministic name: never reveals the original character.
-            // Prevents fonttools / name-table attacks that map PUA → glyph name → original char.
-            name: `g${toHex32(Math.imul((seed ^ i ^ v) + 0x9e3779b9, pua + 0x6c62272e) >>> 0)}`,
-            unicode: pua,
-            advanceWidth: srcGlyph.advanceWidth,
-            path: srcGlyph.path,
-          }));
-        }
-      }
-
-      const newFont = new Font({
-        familyName: "Obfuscated",
-        styleName: "Regular",
-        unitsPerEm: srcFont.unitsPerEm,
-        ascender: srcFont.ascender,
-        descender: srcFont.descender,
-        glyphs: newGlyphs,
-      });
-
-      const ab: ArrayBuffer = newFont.toArrayBuffer();
-      return { fontBytes: new Uint8Array(ab), mapping, variants };
-    })();
-
+    const p = this.buildScramble(seed, candidateAlphabet);
     // Clear the cache entry on failure so subsequent calls can retry.
     p.catch(() => {
       if (this.scrambleCache.get(cacheKey) === p) {

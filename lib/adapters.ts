@@ -9,14 +9,6 @@ function shouldSkipPath(pathname: string, patterns: RegExp[] | undefined): boole
   return patterns.some((p) => p.test(pathname));
 }
 
-function requestFingerprint(req: Request): string {
-  const ua = req.headers.get("user-agent") ?? "";
-  const ip = (req.headers.get("x-forwarded-for") ?? req.headers.get("cf-connecting-ip") ?? "")
-    .split(",")[0]
-    .trim();
-  return `${ip}|${ua}`;
-}
-
 export async function obfuscateHtmlResponse(
   response: Response,
   obfuscator: FontObfuscator,
@@ -33,7 +25,8 @@ export async function obfuscateHtmlResponse(
     selectors: options.selectors,
     fontFamilyName: options.fontFamilyName,
     pageKey: req ? new URL(req.url).pathname : "/",
-    clientFingerprint: req ? requestFingerprint(req) : undefined,
+    // Use the obfuscator's own getClientFingerprint so trustedProxies is respected.
+    clientFingerprint: req ? obfuscator.getClientFingerprint(req) : undefined,
   });
 
   const headers = new Headers(response.headers);
