@@ -68,8 +68,7 @@ function basePageHtml(): string {
     .proof,
     .cards-grid,
     .usage,
-    .inspect,
-    .playground {
+    .inspect {
       border: 1px solid var(--line);
       border-radius: 14px;
       background: var(--card);
@@ -108,11 +107,6 @@ function basePageHtml(): string {
     .inspect {
       padding: 0.9rem 1rem;
       animation-delay: 280ms;
-    }
-
-    .playground {
-      padding: 0.9rem 1rem 1rem;
-      animation-delay: 200ms;
     }
 
     .card:nth-child(1) { animation-delay: 90ms; }
@@ -511,119 +505,6 @@ function basePageHtml(): string {
       color: var(--ink);
     }
 
-    .playground h2 {
-      margin: 0;
-      font-size: 1rem;
-      font-family: "Space Grotesk", sans-serif;
-      letter-spacing: 0.02em;
-    }
-
-    .playground .lead-sub {
-      margin-top: 0.2rem;
-    }
-
-    .play-grid {
-      margin-top: 0.75rem;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 0.8rem;
-      align-items: start;
-    }
-
-    .play-box {
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      background: #fff;
-      padding: 0.65rem;
-    }
-
-    .play-box h3 {
-      margin: 0;
-      font-size: 0.76rem;
-      font-family: "Space Grotesk", sans-serif;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: var(--ink-muted);
-    }
-
-    .play-box p {
-      margin: 0.45rem 0 0;
-      white-space: pre-wrap;
-      word-break: break-word;
-      font-size: 0.95rem;
-      min-height: 2.2rem;
-    }
-
-    .play-box pre {
-      margin: 0.45rem 0 0;
-      white-space: pre-wrap;
-      word-break: break-all;
-      font-size: 0.78rem;
-      line-height: 1.45;
-      min-height: 2.2rem;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      color: var(--code-ink);
-      background: var(--code-bg);
-      border: 1px solid var(--code-line);
-      border-radius: 6px;
-      padding: 0.4rem 0.5rem;
-      overflow: auto;
-      max-height: 8rem;
-    }
-
-    .play-copy-row {
-      margin-top: 0.5rem;
-      display: flex;
-      gap: 0.4rem;
-      flex-wrap: wrap;
-    }
-
-    .play-copy-result {
-      display: none;
-      margin-top: 0.35rem;
-    }
-
-    .play-copy-result pre {
-      background: var(--code-bg);
-      border: 1px solid var(--code-line);
-      color: var(--code-ink);
-    }
-
-    .play-input {
-      width: 100%;
-      margin-top: 0.65rem;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      padding: 0.65rem 0.75rem;
-      min-height: 5rem;
-      resize: vertical;
-      font: inherit;
-      font-size: 0.95rem;
-      line-height: 1.5;
-      color: var(--ink);
-      background: #fff;
-    }
-
-    .play-actions {
-      margin-top: 0.6rem;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-      align-items: center;
-    }
-
-    .play-actions button { margin-top: 0; }
-
-    .play-actions .secondary { background: #7a8896; }
-    .play-actions .secondary:hover { background: #6c7884; }
-
-    .play-status {
-      margin: 0;
-      font-size: 0.82rem;
-      color: #31506a;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    }
-
     @keyframes reveal {
       from { opacity: 0; }
       to { opacity: 1; }
@@ -639,7 +520,6 @@ function basePageHtml(): string {
     @media (max-width: 850px) {
       .cards-grid { grid-template-columns: 1fr; }
       .detail-grid { grid-template-columns: 1fr; }
-      .play-grid { grid-template-columns: 1fr; }
       .proof-grid { grid-template-columns: 1fr; }
       body { padding: 1rem 0.85rem 1.8rem; }
     }
@@ -726,27 +606,6 @@ function basePageHtml(): string {
       </article>
 
     </div>
-
-    <section class="playground">
-      <h2 data-i18n="playTitle"></h2>
-      <p class="lead-sub" data-i18n="playLead"></p>
-      <textarea id="play-input" class="play-input" data-i18n-placeholder="playPlaceholder"></textarea>
-      <div class="play-actions">
-        <button id="play-apply" type="button" data-i18n="playApply"></button>
-        <button id="play-clear" type="button" class="secondary" data-i18n="playClear"></button>
-        <p id="play-status" class="play-status" data-i18n="playStatusIdle"></p>
-      </div>
-      <div class="play-grid">
-        <div class="play-box">
-          <h3 data-i18n="playPlainLabel"></h3>
-          <p id="play-plain"></p>
-        </div>
-        <div class="play-box">
-          <h3 data-i18n="playObfLabel"></h3>
-          <p id="play-target" class="obf-target"></p>
-        </div>
-      </div>
-    </section>
 
     <section class="inspect">
       <div class="inspect-head">
@@ -835,14 +694,6 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
         detailSourceHtml: "① 元のHTML（サーバーが送信するコード）",
         detailDomText: "② DOM内テキスト（難読化済み PUA 文字コード）",
         detailRendered: "③ ブラウザ描画（人間には正しく読める）",
-        playTitle: "Playground",
-        playLead: "テキストを入力して、難読化フォントによる描画をプレビューできます。実際の DOM レベル PUA エンコードはサーバー側で行われます（上の Inspector セクションで確認できます）。",
-        playPlaceholder: "例: 漢字かなカナABC123 記号!? 追加したい文字を入力してください",
-        playApply: "対象へ適用",
-        playClear: "クリア",
-        playPlainLabel: "入力テキスト（平文）",
-        playObfLabel: "難読化フォントによる描画（視覚プレビュー）",
-        playStatusIdle: "入力して「対象へ適用」を押してください。",
         redactedSource: "保護対象テキストは配布ソースから除外されています",
       },
       en: {
@@ -871,14 +722,6 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
         detailSourceHtml: "① Original HTML (sent from server)",
         detailDomText: "② DOM text (obfuscated PUA codes)",
         detailRendered: "③ Browser render (human-readable)",
-        playTitle: "Playground",
-        playLead: "Enter text to preview how the obfuscated font renders it visually. Actual DOM-level PUA encoding happens server-side (see the Inspector section above).",
-        playPlaceholder: "Example: Kanji kana カナ ABC123 symbols!? Type any characters you want to test",
-        playApply: "Apply to Target",
-        playClear: "Clear",
-        playPlainLabel: "Plain input",
-        playObfLabel: "Obfuscated font render (visual preview only)",
-        playStatusIdle: "Enter text and click Apply to Target.",
         redactedSource: "Protected text is not shipped in distributable i18n/source payloads",
       },
     };
@@ -890,16 +733,6 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
       document.getElementById("lang-ja")?.classList.toggle("active", isJa);
       document.getElementById("lang-en")?.classList.toggle("active", !isJa);
       document.documentElement.lang = currentLang;
-    }
-
-    function splitCodePoints(s) {
-      const out = [];
-      for (let i = 0; i < s.length;) {
-        const cp = s.codePointAt(i);
-        out.push(cp);
-        i += cp > 0xffff ? 2 : 1;
-      }
-      return out;
     }
 
     function applyLanguage(lang) {
@@ -921,14 +754,7 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
       });
 
       const plain = document.getElementById("plain-text");
-      const playInput = document.getElementById("play-input");
-      const playPlain = document.getElementById("play-plain");
-      const playTarget = document.getElementById("play-target");
-
       if (plain) plain.textContent = t.plain;
-      if (playInput && "value" in playInput) playInput.value = "";
-      if (playPlain) playPlain.textContent = "";
-      if (playTarget) playTarget.textContent = "";
 
       setLangButtons();
       setTimeout(refreshInspector, 0);
@@ -985,7 +811,7 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
     }
 
     function refreshProof() {
-      const firstObf = document.querySelector(".obf-target:not(#play-target)");
+      const firstObf = document.querySelector(".obf-target");
       if (!firstObf) return;
       const domText = firstObf.textContent || "";
 
@@ -1000,7 +826,7 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
 
       const obfPeek = document.getElementById("src-peek-obf-text");
       if (obfPeek) {
-        const lines = Array.from(document.querySelectorAll(".obf-target:not(#play-target)"))
+        const lines = Array.from(document.querySelectorAll(".obf-target"))
           .map((el) => escapeCodePoints(el.textContent || ""))
           .filter((s) => s.length > 0);
         obfPeek.textContent = lines.join("\\n");
@@ -1044,7 +870,7 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
     }
 
     document.getElementById("copy-demo-obf")?.addEventListener("click", () => {
-      const els = Array.from(document.querySelectorAll(".obf-target:not(#play-target)"));
+      const els = Array.from(document.querySelectorAll(".obf-target"));
       const text = els.map((el) => el.textContent || "").join(" ");
       navigator.clipboard?.writeText(text).catch(() => {});
       showCopyResult("copy-result-obf", "copy-result-obf-text", text);
@@ -1055,27 +881,6 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
       const text = el?.textContent || "";
       navigator.clipboard?.writeText(text).catch(() => {});
       showCopyResult("copy-result-secret", "copy-result-secret-text", text);
-    });
-
-    document.getElementById("play-apply")?.addEventListener("click", () => {
-      const input = document.getElementById("play-input");
-      const plain = document.getElementById("play-plain");
-      const target = document.getElementById("play-target");
-      if (!input || !plain || !target || !("value" in input)) return;
-      const text = (input.value || "").trim();
-      plain.textContent = text;
-      target.textContent = text;
-      setTimeout(refreshInspector, 0);
-    });
-
-    document.getElementById("play-clear")?.addEventListener("click", () => {
-      const input = document.getElementById("play-input");
-      const plain = document.getElementById("play-plain");
-      const target = document.getElementById("play-target");
-      if (input && "value" in input) input.value = "";
-      if (plain) plain.textContent = "";
-      if (target) target.textContent = "";
-      setTimeout(refreshInspector, 0);
     });
 
     applyLanguage("ja");
