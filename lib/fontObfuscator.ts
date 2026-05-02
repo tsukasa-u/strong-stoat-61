@@ -5,6 +5,10 @@ const opentype = (opentypeModule as { default?: unknown }).default ?? opentypeMo
 const wawoff2 = (wawoff2Module as { default?: unknown }).default ?? wawoff2Module;
 
 export interface FontObfuscatorOptions {
+  /**
+   * URL of the source font file (TTF or WOFF2).  Must use the `http` or `https`
+   * scheme — other schemes (e.g. `file://`) are rejected to prevent SSRF.
+   */
   fontUrl: string;
   fontRoutePrefix?: string;
   sessionTtlMs?: number;
@@ -127,6 +131,11 @@ interface FontTicket {
   selectorKey: string;
   clientFingerprint?: string;
   candidateAlphabet?: string[];
+  /**
+   * Cached scramble result created during obfuscateHtml so the font-serve path
+   * can reuse the same computation instead of rebuilding from the seed.
+   */
+  cachedScramble?: Promise<ScrambleResult>;
 }
 
 interface GateState {
@@ -618,6 +627,23 @@ function safeCssStringLiteral(value: string): string {
   return JSON.stringify(value).replace(/<\//g, "<\\/");
 }
 
+/**
+ * Core obfuscation engine.  A single instance is shared across all requests
+ * in a process.
+ *
+ * **Multi-process / cluster deployments:** each worker process has its own
+ * `FontObfuscator` instance with independent state.  The per-IP rate limiter
+ * (`fontGate`) is therefore **not shared** across workers — the effective
+ * request cap per IP is `20 × workerCount`.  If stricter limiting is required,
+ * place a shared reverse-proxy (nginx / Cloudflare) rate-limit in front of the
+ * application, or use a Redis-backed adapter.
+ *
+ * **Content-Security-Policy:** this library does not set a `Content-Security-Policy`
+ * response header.  It is strongly recommended that the host application sets a
+ * CSP that at minimum includes `default-src 'self'` and `font-src 'self'` (plus
+ * the font route prefix if served from a different path).  Not doing so exposes
+ * the application to XSS attacks that can trivially bypass the obfuscation.
+ */
 export class FontObfuscator {
   private readonly fontUrl: string;
   private readonly fontRoutePrefix: string;
@@ -645,6 +671,18 @@ export class FontObfuscator {
   private readonly recentSeeds = new Set<number>();
 
   constructor(options: FontObfuscatorOptions) {
+    // Validate fontUrl scheme to prevent SSRF via file:// / ftp:// / etc.
+    try {
+      const parsedFontUrl = new URL(options.fontUrl);
+      if (parsedFontUrl.protocol !== "http:" && parsedFontUrl.protocol !== "https:") {
+        throw new Error(`fontUrl must use http or https, got: ${parsedFontUrl.protocol}`);
+      }
+    } catch (e) {
+      if (e instanceof TypeError) {
+        throw new Error(`fontUrl is not a valid URL: ${options.fontUrl}`);
+      }
+      throw e;
+    }
     this.fontUrl = options.fontUrl;
     const prefix = options.fontRoutePrefix ?? DEFAULT_FONT_ROUTE_PREFIX;
     // Validate fontRoutePrefix to prevent CSS/path injection:
@@ -726,13 +764,15 @@ export class FontObfuscator {
       return new Response("Session expired", { status: 410 });
     }
 
-    if (!/^[0-9a-f]{64}$/i.test(sig)) {
+    // Generated sigs are always lowercase hex; reject any uppercase variant to
+    // avoid the allocation of sig.toLowerCase() on every request.
+    if (!/^[0-9a-f]{64}$/.test(sig)) {
       this.recordGateFailure(gateKey);
       return new Response("Forbidden", { status: 403 });
     }
 
     const expectedSig = await this.signTicket(token, exp, ticket.clientFingerprint);
-    if (exp !== ticket.expiry || !timingSafeEqual(sig.toLowerCase(), expectedSig)) {
+    if (exp !== ticket.expiry || !timingSafeEqual(sig, expectedSig)) {
       this.recordGateFailure(gateKey);
       return new Response("Forbidden", { status: 403 });
     }
@@ -749,7 +789,9 @@ export class FontObfuscator {
     this.clearGateFailure(gateKey);
 
     const alphabet = ticket.candidateAlphabet ?? this.alphabet;
-    const { fontBytes } = await this.scrambleFont(ticket.seed, alphabet);
+    // Reuse a scramble that was pre-built during obfuscateHtml (if available)
+    // to avoid building the same font twice for the same request cycle.
+    const { fontBytes } = await (ticket.cachedScramble ?? this.scrambleFont(ticket.seed, alphabet));
     return new Response(fontBytes as unknown as BodyInit, {
       headers: {
         "content-type": "font/ttf",
@@ -972,10 +1014,14 @@ export class FontObfuscator {
       candidateAlphabet,
       clientFingerprint: normalizeClientFingerprint(options.clientFingerprint),
     });
-    // Use the uncached path: obfuscateHtml generates a new seed every call so
-    // the scrambleCache would never hit, and sharing the cache would evict
-    // entries used by the precomputed rotation path.
-    const { mapping, variants } = await this.buildScramble(ticket.seed, candidateAlphabet);
+    // Build the scramble once here. Store the promise on the ticket so that
+    // maybeHandleFontRequest can reuse it instead of rebuilding from the seed.
+    // Use the uncached buildScramble path because obfuscateHtml uses a fresh
+    // seed every call and we don't want to pollute the precomputed rotation cache.
+    const scramblePromise = this.buildScramble(ticket.seed, candidateAlphabet);
+    const storedTicket = this.fontTickets.get(ticket.token);
+    if (storedTicket) storedTicket.cachedScramble = scramblePromise;
+    const { mapping, variants } = await scramblePromise;
 
     const devMode = options.devMode ?? this.devMode;
     let unmappedChars: Set<string> | null = null;
