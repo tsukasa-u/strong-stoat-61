@@ -1200,10 +1200,16 @@ export class FontObfuscator {
   ): string {
     const chars = Array.from(unmappedChars);
     const codes = chars
-      .map(
-        (ch) =>
-          `U+${ch.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")} (${ch})`,
-      )
+      .map((ch) => {
+        const cp = ch.codePointAt(0)!;
+        // HTML-escape the literal character so that chars like < > & in the
+        // alphabet cannot inject markup into the devMode warning panel.
+        const escaped = ch
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+        return `U+${cp.toString(16).toUpperCase().padStart(4, "0")} (${escaped})`;
+      })
       .join(", ");
 
     const style = `
