@@ -259,9 +259,15 @@ function extractTextCharsFromHtml(html: string): string[] {
     .replace(/<textarea\b[^>]*>[\s\S]*?<\/textarea>/gi, " ")
     .replace(/<[^>]+>/g, " ");
 
+  // Decode numeric char refs so that &#20013; is counted as '中', not as the
+  // literal ASCII chars '&', '#', '2', etc.  This must mirror the decoding that
+  // obfuscateTextWithMapping does at encode time; otherwise entity-encoded chars
+  // would not be added to the candidate alphabet and would leak as plaintext.
+  const decoded = decodeNumericCharRefs(stripped);
+
   const chars: string[] = [];
   const seen = new Set<string>();
-  for (const ch of stripped) {
+  for (const ch of decoded) {
     if (/\s/u.test(ch)) continue;
     if (seen.has(ch)) continue;
     seen.add(ch);
