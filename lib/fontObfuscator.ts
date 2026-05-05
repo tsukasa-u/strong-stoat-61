@@ -376,7 +376,9 @@ function obfuscateTextWithMapping(
   // Decode numeric character references so that e.g. &#48; is treated as '0'
   // and gets the same PUA mapping as the literal character.
   const decoded = decodeNumericCharRefs(input);
-  const useVariants = !!variants && !!variantSeed;
+  // Use `!== undefined` rather than truthiness so that variantSeed=0 still
+  // activates variant randomization (mulberry32(0) is a valid PRNG state).
+  const useVariants = variants != null && variantSeed !== undefined;
   const rng = useVariants ? mulberry32((variantSeed! ^ fnv1a32(decoded)) >>> 0) : null;
   let out = "";
   for (let i = 0; i < decoded.length;) {
