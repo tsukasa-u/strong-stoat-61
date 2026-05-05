@@ -206,6 +206,53 @@ const DIGIT_VARIANT_TARGETS = new Set([
   "０", "１", "２", "３", "４", "５", "６", "７", "８", "９",
 ]);
 
+const NAME_FIELDS_TO_KEEP_GENERATED = new Set([
+  "fontFamily",
+  "fontSubfamily",
+  "fullName",
+  "postScriptName",
+  "preferredFamily",
+  "preferredSubfamily",
+  "compatibleFullName",
+  "wwsFamily",
+  "wwsSubfamily",
+  "postScriptFindFontName",
+  "uniqueID",
+]);
+
+function cloneNameValue(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.slice();
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = v;
+  return out;
+}
+
+function preserveSourceNameTable(srcFont: any, newFont: any): void {
+  const srcNames = srcFont?.names;
+  if (!srcNames || typeof srcNames !== "object") return;
+
+  if (!newFont.names || typeof newFont.names !== "object") {
+    newFont.names = {};
+  }
+
+  // font.names has the structure: { windows: { copyright: { en: "..." }, ... }, macintosh: {...}, unicode: {...} }
+  // Iterate each platform (windows/macintosh/unicode), then each field within the platform.
+  // Skip fields that were generated for the obfuscated font identity (family name, PS name, etc.)
+  // so license/copyright/trademark and attribution metadata from the source are preserved.
+  const newNames = newFont.names as Record<string, Record<string, unknown>>;
+  for (const [platform, platformRecord] of Object.entries(srcNames as Record<string, unknown>)) {
+    if (!platformRecord || typeof platformRecord !== "object") continue;
+    if (!newNames[platform] || typeof newNames[platform] !== "object") {
+      newNames[platform] = {};
+    }
+    for (const [field, value] of Object.entries(platformRecord as Record<string, unknown>)) {
+      if (NAME_FIELDS_TO_KEEP_GENERATED.has(field)) continue;
+      newNames[platform][field] = cloneNameValue(value);
+    }
+  }
+}
+
 function secureRandU32(): number {
   const buf = new Uint32Array(1);
   crypto.getRandomValues(buf);
@@ -1566,13 +1613,14 @@ export class FontObfuscator {
       descender: srcFont.descender,
       glyphs: newGlyphs,
     });
+    preserveSourceNameTable(srcFont, newFont);
 
     const ab: ArrayBuffer = newFont.toArrayBuffer();
     return { fontBytes: new Uint8Array(ab), mapping, variants };
   }
 
   private scrambleFont(seed: number, candidateAlphabet: string[]): Promise<ScrambleResult> {
-    const cacheKey = `${seed}:${candidateAlphabet.length}:${hashCharList(candidateAlphabet)}:${this.digitVariantCount}`;
+    const cacheKey = `${seed}:${candidateAlphabet.length}:${hashCharList(candidateAlphabet)}:${this.variantCount}:${this.digitVariantCount}`;
     const cached = this.scrambleCache.get(cacheKey);
     if (cached) return cached;
 
