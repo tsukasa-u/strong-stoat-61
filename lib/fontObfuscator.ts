@@ -45,9 +45,24 @@ export interface FontObfuscatorOptions {
    */
   devMode?: boolean;
   /**
+   * Number of PUA variants to allocate per character.
+   * A value > 1 makes every character encode to multiple possible PUA codepoints,
+   * making frequency analysis harder across the entire page.
+   *
+   * **PUA budget**: the BMP Private Use Area holds 6,400 codepoints (U+E000–U+F8FF).
+   * Total slots consumed = `uniqueChars × variantCount`.  Characters beyond the
+   * budget silently receive fewer variants rather than causing an error.
+   * Typical pages (< 400 unique chars × 4 variants = 1,600 slots) are well within
+   * the limit; kanji-heavy pages with thousands of unique characters should keep
+   * `variantCount` lower (e.g. 2) to stay within budget.
+   * @default 1
+   */
+  variantCount?: number;
+  /**
    * Number of PUA variants to allocate for numeric glyphs (0-9, full-width 0-9).
-   * A value > 1 makes the same digit encode to multiple possible PUA codepoints,
-   * reducing inference from observing a single encoded sample.
+   * When set, digits receive `max(variantCount, digitVariantCount)` variants.
+   * Useful to give counters and prices extra obfuscation on top of the base
+   * `variantCount`.
    * @default 4
    */
   digitVariantCount?: number;
@@ -196,6 +211,8 @@ const DEFAULT_FONT_GATE_BLOCK_MS = 10 * 60 * 1000;
 const PUA_START = 0xE000;
 const PUA_END = 0xF8FF;
 const MAX_MAPPABLE_CHARS = PUA_END - PUA_START + 1;
+const DEFAULT_VARIANT_COUNT = 1;
+const MAX_VARIANT_COUNT = 16;
 const DEFAULT_DIGIT_VARIANT_COUNT = 4;
 const MAX_DIGIT_VARIANT_COUNT = 16;
 const DEFAULT_MAPPING_ROTATION_INTERVAL_MS = 2 * 60 * 1000;
@@ -789,6 +806,7 @@ export class FontObfuscator {
   private readonly fontGateMaxSize = 50_000;
   private readonly fontTicketsMaxSize = 200_000;
   private readonly rotatingPageMapMaxSize = 50;
+  private readonly variantCount: number;
   private readonly digitVariantCount: number;
   private readonly trustedProxies: string[] | undefined;
   private lastCleanupAt = 0;
@@ -827,12 +845,48 @@ export class FontObfuscator {
     this.fontDisplay = requestedFontDisplay;
     this.alphabet = options.alphabet ?? defaultAlphabet();
     this.devMode = options.devMode ?? false;
+    this.variantCount = Math.max(
+      1,
+      Math.min(options.variantCount ?? DEFAULT_VARIANT_COUNT, MAX_VARIANT_COUNT),
+    );
     this.digitVariantCount = Math.max(
       1,
       Math.min(options.digitVariantCount ?? DEFAULT_DIGIT_VARIANT_COUNT, MAX_DIGIT_VARIANT_COUNT),
     );
     this.mappingRotationIntervalMs = options.mappingRotationIntervalMs ?? DEFAULT_MAPPING_ROTATION_INTERVAL_MS;
     this.trustedProxies = options.trustedProxies;
+
+    // Static budget check — runs at construction time, before any request arrives.
+    // Only digit chars (DIGIT_VARIANT_TARGETS) use digitVariantCount; all others use
+    // variantCount.  Count each group separately for an accurate estimate.
+    let digitInAlphabet = 0;
+    for (const ch of this.alphabet) {
+      if (DIGIT_VARIANT_TARGETS.has(ch)) digitInAlphabet++;
+    }
+    const nonDigitInAlphabet = this.alphabet.length - digitInAlphabet;
+    const estimatedSlots =
+      nonDigitInAlphabet * this.variantCount +
+      digitInAlphabet * Math.max(this.variantCount, this.digitVariantCount);
+    if (this.alphabet.length > MAX_MAPPABLE_CHARS) {
+      throw new Error(
+        `[FontObfuscator] alphabet has ${this.alphabet.length} characters ` +
+        `but the PUA pool only holds ${MAX_MAPPABLE_CHARS}. ` +
+        `Characters beyond the limit cannot be obfuscated and would appear as plaintext. ` +
+        `Reduce your alphabet or split content across multiple FontObfuscator instances.`,
+      );
+    } else if (estimatedSlots > MAX_MAPPABLE_CHARS) {
+      const maxSafeVariant = Math.floor(MAX_MAPPABLE_CHARS / this.alphabet.length);
+      console.warn(
+        `[FontObfuscator] PUA budget warning: estimated PUA slots needed = ${estimatedSlots} ` +
+        `(${nonDigitInAlphabet} non-digit chars × ${this.variantCount} + ` +
+        `${digitInAlphabet} digit chars × ${Math.max(this.variantCount, this.digitVariantCount)}), ` +
+        `but the PUA pool only holds ${MAX_MAPPABLE_CHARS}. ` +
+        `Characters that exceed the budget will be obfuscated but with fewer variants, ` +
+        `weakening frequency-analysis resistance. ` +
+        `Consider setting variantCount ≤ ${maxSafeVariant} for this alphabet size.`,
+      );
+    }
+
     this.hmacSecret = crypto.getRandomValues(new Uint8Array(32));
     const keyMaterial = this.hmacSecret.buffer.slice(
       this.hmacSecret.byteOffset,
@@ -1545,8 +1599,20 @@ export class FontObfuscator {
     if (usable.length === 0) {
       throw new Error("no usable glyphs in source font for alphabet");
     }
+
+    // [Security] Characters beyond the PUA pool limit cannot be mapped and will
+    // pass through obfuscateTextWithMapping as plaintext.  This should have been
+    // caught by the constructor check; throw here as a last-resort guard in case
+    // the alphabet was mutated externally or the check was bypassed.
     if (usable.length > MAX_MAPPABLE_CHARS) {
-      usable.length = MAX_MAPPABLE_CHARS;
+      const dropped = usable.length - MAX_MAPPABLE_CHARS;
+      const examples = usable.slice(MAX_MAPPABLE_CHARS, MAX_MAPPABLE_CHARS + 8).join(" ");
+      throw new Error(
+        `[FontObfuscator] ${usable.length} characters are mappable in the source font ` +
+        `but the PUA pool only has ${MAX_MAPPABLE_CHARS} slots. ` +
+        `The last ${dropped} characters (e.g. "${examples}") would appear as plaintext. ` +
+        `Reduce your alphabet or lower variantCount.`,
+      );
     }
 
     const puaPool: number[] = [];
@@ -1578,14 +1644,37 @@ export class FontObfuscator {
       variants[ch] = [pua];
     }
 
-    // Second pass: allocate additional variants for numeric glyphs.
-    if (this.digitVariantCount > 1) {
+    // Second pass: allocate additional variants for all characters.
+    // Digits receive max(variantCount, digitVariantCount) variants;
+    // all other characters receive variantCount variants.
+    if (this.variantCount > 1 || this.digitVariantCount > 1) {
+      let shortfallCount = 0;
       for (const ch of usable) {
-        if (!DIGIT_VARIANT_TARGETS.has(ch)) continue;
+        const target = DIGIT_VARIANT_TARGETS.has(ch)
+          ? Math.max(this.variantCount, this.digitVariantCount)
+          : this.variantCount;
         const bucket = variants[ch];
-        while (bucket.length < this.digitVariantCount && puaIdx < puaPool.length) {
+        while (bucket.length < target && puaIdx < puaPool.length) {
           bucket.push(puaPool[puaIdx++]);
         }
+        if (bucket.length < target) shortfallCount++;
+      }
+      if (shortfallCount > 0) {
+        // Compute actual slot count: digits use max(variantCount, digitVariantCount),
+        // non-digits use variantCount.
+        let slotsNeeded = 0;
+        for (const ch of usable) {
+          slotsNeeded += DIGIT_VARIANT_TARGETS.has(ch)
+            ? Math.max(this.variantCount, this.digitVariantCount)
+            : this.variantCount;
+        }
+        console.warn(
+          `[FontObfuscator] PUA variant budget exhausted: ${shortfallCount} of ${usable.length} characters ` +
+          `received fewer than their requested variants ` +
+          `(need ${slotsNeeded} slots total, PUA pool has ${MAX_MAPPABLE_CHARS}). ` +
+          `These characters are still obfuscated but their frequency pattern is less obscured. ` +
+          `Consider lowering variantCount (currently ${this.variantCount}) or reducing the alphabet size.`,
+        );
       }
     }
 

@@ -111,7 +111,8 @@ Font Obfuscator は、HTMLレスポンスに難読化処理を注入するライ
 | `fontRoutePrefix` | `/_obf/font` | フォントトークンエンドポイントのパスプレフィックス |
 | `fontUrlTtlMs` | `30_000` | トークン有効期限（ms）。低速回線では延長を検討 |
 | `fontDisplay` | `"block"` | `@font-face` の `font-display` 戦略 |
-| `digitVariantCount` | `4` | 数字（0〜9）ごとの追加 PUA バリアント数 |
+| `variantCount` | `1` | **全文字**への PUA バリアント数。頻度分析を無効化（[PUA バジェット](#pua-バジェット)参照）|
+| `digitVariantCount` | `4` | 数字は `max(variantCount, digitVariantCount)` バリアントを割り当て |
 | `mappingRotationIntervalMs` | `120_000` | PUA シャッフルマッピングのローテーション間隔（ms）|
 | `alphabet` | ASCII + ひらがな + カタカナ + 全角 | スクランブル対象文字セット |
 | `trustedProxies` | `undefined` | XFF 解析で信頼するリバースプロキシ IP リスト |
@@ -270,6 +271,21 @@ if (fontRes) return fontRes;
 - 高度な解析で復元される可能性はある
 - OCR 対策は別途必要
 - API設計・アクセス制御・監視との併用が前提
+
+### PUA バジェット
+
+BMP 私用領域は **6,400 コードポイント**（U+E000–U+F8FF）を持ちます。  
+消費スロット数 = `ユニーク文字数 × variantCount`（数字は `max(variantCount, digitVariantCount)`）。  
+超過した場合、後半の文字は静かにバリアント数が減少します（衝突は発生しません）。
+
+| シナリオ | 文字数 | `variantCount` | 消費スロット |
+|---|---|---|---|
+| デフォルト、既定値 | 約333 | 1（数字のみ4） | 約393 |
+| デフォルト、`variantCount: 4` | 約333 | 4 | 約1,332 |
+| + 漢字500字、`variantCount: 4` | 約833 | 4 | 約3,332 |
+| 常用漢字全部、`variantCount: 4` | 約2,469 | 4 | 約9,876 ← **超過** |
+
+漢字が多いページで高バリアント数を使う場合は `variantCount: 2` か、ローテーション間隔を短くする方法を推奨します。
 
 ## テスト
 

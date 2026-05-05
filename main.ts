@@ -8,6 +8,10 @@ const obfuscator = new FontObfuscator({
   // prefer blocking fallback while the protected font is loading.
   fontUrlTtlMs: 45_000,
   fontDisplay: "block",
+  // Extend polymorphic (multi-variant) PUA mapping to all characters, not
+  // just digits. Every character gets 4 PUA variants so frequency analysis
+  // across a single page snapshot reveals nothing.
+  variantCount: 4,
   // Local Deno demo has no trusted reverse proxy.
   trustedProxies: [],
   devMode: true,

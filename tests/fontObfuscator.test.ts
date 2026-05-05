@@ -223,6 +223,109 @@ it("encodeText can emit multiple variants for same digit when variants are provi
   expect(out.size).toBeGreaterThan(1);
 });
 
+it("variantCount allocates multiple PUA variants for non-digit characters", async () => {
+  const obf = new FontObfuscator({
+    fontUrl:
+      "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+    variantCount: 4,
+  });
+
+  const pm = await obf.precomputeMapping("<html><body><p>Hello</p></body></html>");
+  // Non-digit character "H" should have 4 variants when variantCount=4
+  expect(pm.variants["H"]).toBeDefined();
+  expect(pm.variants["H"].length).toBe(4);
+
+  // Each variant must be a unique PUA codepoint
+  const set = new Set(pm.variants["H"]);
+  expect(set.size).toBe(4);
+
+  // encodeText should emit different PUA codepoints for the same char with different seeds
+  const encoded = new Set<string>();
+  for (let i = 1; i <= 20; i++) {
+    encoded.add(encodeText("H", pm.mapping, { variants: pm.variants, variantSeed: i }));
+  }
+  expect(encoded.size).toBeGreaterThan(1);
+});
+
+it("variantCount and digitVariantCount are independent: digits use max", async () => {
+  const obf = new FontObfuscator({
+    fontUrl:
+      "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+    variantCount: 2,
+    digitVariantCount: 6,
+  });
+
+  const pm = await obf.precomputeMapping("<html><body><p>A0</p></body></html>");
+  // Non-digit "A" gets variantCount (2) variants
+  expect(pm.variants["A"].length).toBe(2);
+  // Digit "0" gets max(variantCount=2, digitVariantCount=6) = 6 variants
+  expect(pm.variants["0"].length).toBe(6);
+});
+
+it("variantCount and digitVariantCount are independent: larger variantCount still applies to digits", async () => {
+  const obf = new FontObfuscator({
+    fontUrl:
+      "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+    variantCount: 5,
+    digitVariantCount: 2,
+  });
+
+  const pm = await obf.precomputeMapping("<html><body><p>A0０</p></body></html>");
+  expect(pm.variants["A"].length).toBe(5);
+  expect(pm.variants["0"].length).toBe(5);
+  expect(pm.variants["０"].length).toBe(5);
+});
+
+it("generated font preserves source legal/attribution name records", async () => {
+  const fontUrl =
+    "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf";
+  const obf = new FontObfuscator({ fontUrl });
+
+  const html = "<html><head></head><body><p class=\"a\">A0漢字</p></body></html>";
+  const out = await obf.obfuscateHtml(html, { selectors: [".a"] });
+  const pathMatch = out.match(/url\(([^)]+)\)/);
+  expect(pathMatch).toBeTruthy();
+  const fontPath = pathMatch![1].trim().replace(/^['\"]|['\"]$/g, "");
+
+  const served = await obf.maybeHandleFontRequest(new Request(`http://localhost:8000${fontPath}`));
+  expect(served?.status).toBe(200);
+  const generatedBytes = await served!.arrayBuffer();
+  const generatedFont = (opentype as any).parse(generatedBytes);
+
+  const srcRes = await fetch(fontUrl);
+  expect(srcRes.ok).toBe(true);
+  const srcBytes = await srcRes.arrayBuffer();
+  const sourceFont = (opentype as any).parse(srcBytes);
+
+  const fields = [
+    "copyright",
+    "license",
+    "licenseURL",
+    "trademark",
+    "manufacturer",
+    "manufacturerURL",
+    "designer",
+    "designerURL",
+    "description",
+    "version",
+  ];
+
+  // font.names structure: { windows: { copyright: { en: "..." }, ... }, macintosh: {...} }
+  // Use the windows platform record as the canonical source for comparison.
+  const srcWindowsNames = sourceFont.names?.windows ?? {};
+  const genWindowsNames = generatedFont.names?.windows ?? {};
+
+  let comparedAtLeastOne = false;
+  for (const field of fields) {
+    const srcRecord = srcWindowsNames[field];
+    if (srcRecord === undefined) continue;
+    comparedAtLeastOne = true;
+    expect(genWindowsNames[field]).toEqual(srcRecord);
+  }
+  expect(comparedAtLeastOne).toBe(true);
+});
+
+
 it("obfuscateSelectorScopeHtml does not corrupt text after void elements with target class", async () => {
   // Regression test for void element stack corruption bug:
   // <img class="obf-target"> should NOT push onto the stack, so sibling text
