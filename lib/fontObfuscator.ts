@@ -797,10 +797,14 @@ export class FontObfuscator {
     const prefix = `${this.fontRoutePrefix}/`;
     if (!url.pathname.startsWith(prefix)) return null;
 
-    if (req.method !== "GET" && req.method !== "HEAD") {
+    // Only GET is supported.  HEAD is explicitly rejected because font URLs are
+    // one-time-use tokens: a HEAD request from a CDN probe or reverse proxy would
+    // consume the token before the browser's GET, causing the font fetch to fail
+    // with 410 Gone and leaving the page text unreadable.
+    if (req.method !== "GET") {
       return new Response("Method Not Allowed", {
         status: 405,
-        headers: { "allow": "GET, HEAD" },
+        headers: { "allow": "GET" },
       });
     }
 

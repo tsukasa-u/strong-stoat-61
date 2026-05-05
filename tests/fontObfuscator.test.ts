@@ -1,5 +1,8 @@
 import { expect, it } from "vitest";
+import * as opentypeModule from "opentype.js";
 import { FontObfuscator, encodeText, preEncodeShuffled } from "../lib/index.ts";
+
+const opentype = (opentypeModule as { default?: unknown }).default ?? opentypeModule;
 
 it("maybeHandleFontRequest returns null for unrelated path", async () => {
   const obf = new FontObfuscator({
@@ -21,15 +24,17 @@ it("maybeHandleFontRequest returns 404 for invalid token path", async () => {
   expect(res?.status).toBe(404);
 });
 
-it("maybeHandleFontRequest rejects non-GET/HEAD methods", async () => {
+it("maybeHandleFontRequest rejects non-GET methods (including HEAD)", async () => {
   const obf = new FontObfuscator({
     fontUrl: "https://example.com/font.otf",
   });
 
-  const req = new Request("http://localhost:8000/_obf/font/not-a-token", { method: "POST" });
-  const res = await obf.maybeHandleFontRequest(req);
-  expect(res?.status).toBe(405);
-  expect(res?.headers.get("allow")).toBe("GET, HEAD");
+  for (const method of ["POST", "PUT", "DELETE", "HEAD"]) {
+    const req = new Request("http://localhost:8000/_obf/font/not-a-token", { method });
+    const res = await obf.maybeHandleFontRequest(req);
+    expect(res?.status).toBe(405);
+    expect(res?.headers.get("allow")).toBe("GET");
+  }
 });
 
 it("obfuscateHtml keeps html unchanged when selectors are empty", async () => {
