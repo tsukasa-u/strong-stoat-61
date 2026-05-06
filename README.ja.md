@@ -111,11 +111,16 @@ Font Obfuscator は、HTMLレスポンスに難読化処理を注入するライ
 | `fontRoutePrefix` | `/_obf/font` | フォントトークンエンドポイントのパスプレフィックス |
 | `fontUrlTtlMs` | `30_000` | トークン有効期限（ms）。低速回線では延長を検討 |
 | `fontDisplay` | `"block"` | `@font-face` の `font-display` 戦略 |
-| `digitVariantCount` | `4` | 数字（0〜9）ごとの追加 PUA バリアント数 |
+| `variantCount` | `1` | **全文字**への PUA バリアント数。頻度分析を無効化（[PUA バジェット](#pua-バジェット)参照）|
+| `digitVariantCount` | `4` | 数字は `max(variantCount, digitVariantCount)` バリアントを割り当て |
 | `mappingRotationIntervalMs` | `120_000` | PUA シャッフルマッピングのローテーション間隔（ms）|
 | `alphabet` | ASCII + ひらがな + カタカナ + 全角 | スクランブル対象文字セット |
 | `trustedProxies` | `undefined` | XFF 解析で信頼するリバースプロキシ IP リスト |
 | `devMode` | `false` | マッピングされていない文字を示すパネルを表示 |
+| `budgetPolicy` | `"legacy"` | PUA 予算超過時のポリシー: `"legacy"`（警告）/ `"adaptive"`（優雅な劇化＋フック）/ `"strict"`（throw）|
+| `variantAllocator` | `"uniform"` | `"adaptive"` 時のバリアント配分戦略: `"uniform"`（均一）または `"class-weighted"`（文字種別重み）|
+| `minPrimaryGuarantee` | `1` | `"adaptive"` 時に各文字へ保証する最小 PUA スロット数 |
+| `onBudgetDegrade` | `undefined` | `"adaptive"` 時にバリアント予算が不足した際に呼び出されるコールバック（メトリクス収集用途等）|
 
 ### `await obfuscator.obfuscateHtml(html, { selectors })`
 
@@ -270,6 +275,51 @@ if (fontRes) return fontRes;
 - 高度な解析で復元される可能性はある
 - OCR 対策は別途必要
 - API設計・アクセス制御・監視との併用が前提
+
+### PUA バジェット
+
+BMP 私用領域は **6,400 コードポイント**（U+E000–U+F8FF）を持ちます。  
+消費スロット数 = `ユニーク文字数 × variantCount`（数字は `max(variantCount, digitVariantCount)`）。  
+
+| シナリオ | 文字数 | `variantCount` | 消費スロット |
+|---|---|---|---|
+| デフォルト、既定値 | 紏333 | 1（数字の㑳4） | 紏393 |
+| デフォルト、`variantCount: 4` | 紏333 | 4 | 紏1,332 |
+| + 漢字500字、`variantCount: 4` | 紏833 | 4 | 紏3,332 |
+| 常用漢字全部、`variantCount: 4` | 紏2,469 | 4 | 紏9,876 ← **超過** |
+
+漢字が多いページで高バリアント数を使う場合は `variantCount: 2` か、ローテーション間隔を短くする方法を推奨します。
+
+#### バジェット超過ポリシー
+
+`budgetPolicy` でバジェット超過時の挙動を制御できます。
+
+```ts
+// "legacy" （デフォルト）: 超過時に console.warn。既存の挙動を維持
+new FontObfuscator({ fontUrl, budgetPolicy: "legacy" });
+
+// "adaptive": 各文字のプライマリスロットを必ず保証。予算を超えたバリアント分は剤複。
+// プレーンテキストの漏洩はなし
+new FontObfuscator({
+  fontUrl,
+  budgetPolicy: "adaptive",
+  variantAllocator: "class-weighted", // 数字・通貨記号により多く割り当て
+  onBudgetDegrade: (e) => console.log(
+    `バリアント不足: ${e.variantShortfall}/${e.totalChars} 文字`,
+  ),
+});
+
+// "strict": 概算スロットが不足する場合はコンストラクタで throw
+new FontObfuscator({ fontUrl, budgetPolicy: "strict", variantCount: 2 });
+```
+
+**`variantAllocator` 戦略**（`budgetPolicy: "adaptive"` 時のみ有効）：
+
+| 戦略 | 説明 |
+|---|---|
+| `"uniform"` | 全文字に均一に `variantCount` スロットを配分（デフォルト）|
+| `"class-weighted"` | 数字・通貨記号・ラテン文字に静的重みでより多く配分 |
+| `"frequency-weighted"` | 将来のリリースで対応予定。現在は `"uniform"` にフォールバック |
 
 ## テスト
 

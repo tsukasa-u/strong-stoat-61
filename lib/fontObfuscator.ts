@@ -1,8 +1,64 @@
 import * as opentypeModule from "opentype.js";
 import * as wawoff2Module from "wawoff2";
+import he from "he";
 
 const opentype = (opentypeModule as { default?: unknown }).default ?? opentypeModule;
 const wawoff2 = (wawoff2Module as { default?: unknown }).default ?? wawoff2Module;
+
+/**
+ * PUA budget overflow policy.
+ *
+ * - `"strict"`: throws at construction time if estimated slot usage exceeds the
+ *   PUA pool. Every character is guaranteed its full variant count or construction
+ *   fails. Recommended for security-critical deployments.
+ * - `"adaptive"`: guarantees one primary PUA slot per character. Surplus slots are
+ *   distributed to variants using `variantAllocator`. If the pool is exhausted
+ *   before all variant requests are filled, `onBudgetDegrade` is called and
+ *   execution continues (no plaintext leakage — primary mapping is always intact).
+ * - `"legacy"`: original two-pass behaviour with `console.warn` on shortfall.
+ *   Preserved for backward compatibility. Not recommended for new projects.
+ *
+ * @default "legacy"
+ */
+export type BudgetPolicy = "strict" | "adaptive" | "legacy";
+
+/**
+ * Variant slot allocation strategy. Effective only when `budgetPolicy` is
+ * `"adaptive"`.
+ *
+ * - `"uniform"`: each character requests `variantCount` (or `digitVariantCount`
+ *   for digits) extra slots, same as the legacy behaviour within the adaptive
+ *   framework.
+ * - `"class-weighted"`: digits, currency symbols, and Latin characters receive
+ *   proportionally more variant slots based on a static weight table.
+ * - `"frequency-weighted"`: reserved for a future release; currently falls back
+ *   to `"uniform"`.
+ *
+ * @default "uniform"
+ */
+export type VariantAllocator = "uniform" | "frequency-weighted" | "class-weighted";
+
+/**
+ * Event passed to `onBudgetDegrade` when variant slots run short in
+ * `"adaptive"` mode.
+ */
+export interface BudgetDegradeEvent {
+  /** Total number of characters in the mapping (= `usable.length`). */
+  totalChars: number;
+  /** Characters that received a primary PUA slot (= `totalChars` in adaptive mode). */
+  primaryMapped: number;
+  /** Number of characters that received fewer variants than requested. */
+  variantShortfall: number;
+  /**
+   * Characters that could not receive even a primary slot.
+   * Always 0 in `"adaptive"` mode (primary mapping is guaranteed).
+   */
+  droppedChars: number;
+  /** PUA slots consumed in total (primary + variants). */
+  slotsUsed: number;
+  /** Total PUA slots available in the pool. */
+  slotsAvailable: number;
+}
 
 export interface FontObfuscatorOptions {
   /**
@@ -45,9 +101,24 @@ export interface FontObfuscatorOptions {
    */
   devMode?: boolean;
   /**
+   * Number of PUA variants to allocate per character.
+   * A value > 1 makes every character encode to multiple possible PUA codepoints,
+   * making frequency analysis harder across the entire page.
+   *
+   * **PUA budget**: the BMP Private Use Area holds 6,400 codepoints (U+E000–U+F8FF).
+   * Total slots consumed = `uniqueChars × variantCount`.  The `budgetPolicy` option
+   * controls what happens when the budget is exceeded: `"legacy"` (default) emits a
+   * console warning, `"adaptive"` gracefully reduces variant counts, and `"strict"`
+   * throws at construction time.  Typical pages (< 400 unique chars × 4 variants =
+   * 1,600 slots) are well within the limit.
+   * @default 1
+   */
+  variantCount?: number;
+  /**
    * Number of PUA variants to allocate for numeric glyphs (0-9, full-width 0-9).
-   * A value > 1 makes the same digit encode to multiple possible PUA codepoints,
-   * reducing inference from observing a single encoded sample.
+   * When set, digits receive `max(variantCount, digitVariantCount)` variants.
+   * Useful to give counters and prices extra obfuscation on top of the base
+   * `variantCount`.
    * @default 4
    */
   digitVariantCount?: number;
@@ -66,6 +137,49 @@ export interface FontObfuscatorOptions {
    * Pass an empty array `[]` to disable X-Forwarded-For entirely (identify clients by UA only).
    */
   trustedProxies?: string[];
+  /**
+   * PUA budget overflow policy.
+   *
+   * - `"strict"`: throws at construction time if estimated variant slot usage exceeds
+   *   the PUA pool. Every character is guaranteed its full `variantCount`.
+   * - `"adaptive"`: guarantees one primary PUA slot per character. Surplus slots are
+   *   distributed with `variantAllocator`. Shortfalls invoke `onBudgetDegrade`.
+   * - `"legacy"`: original behaviour — two-pass allocation with `console.warn` on
+   *   shortfall. Default for backward compatibility; not recommended for new projects.
+   *
+   * @default "legacy"
+   */
+  budgetPolicy?: BudgetPolicy;
+  /**
+   * Variant slot allocation strategy. Effective only when `budgetPolicy` is `"adaptive"`.
+   *
+   * - `"uniform"`: each character gets `variantCount` (digits get `digitVariantCount`)
+   *   additional slots — same as the legacy split but inside the adaptive framework.
+   * - `"class-weighted"`: digits, currency symbols, and Latin characters receive
+   *   proportionally more slots via a static weight table.
+   * - `"frequency-weighted"`: reserved for a future release; currently falls back to
+   *   `"uniform"`.
+   *
+   * @default "uniform"
+   */
+  variantAllocator?: VariantAllocator;
+  /**
+   * Minimum guaranteed PUA slots per character in `"adaptive"` mode.
+   * Construction throws if the pool cannot meet this for every character.
+   * Keep at 1 (the default) unless you have a specific multi-slot guarantee requirement.
+   *
+   * @default 1
+   */
+  minPrimaryGuarantee?: number;
+  /**
+   * Called when variant budget runs short in `"adaptive"` mode (never called in
+   * `"strict"` mode, which throws before reaching a shortfall).
+   * Use this to emit Prometheus counters, structured logs, or alerts.
+   *
+   * @example
+   * onBudgetDegrade: (e) => metrics.increment("font_obf.degrade", { shortfall: e.variantShortfall })
+   */
+  onBudgetDegrade?: (event: BudgetDegradeEvent) => void;
 }
 
 export interface ObfuscateHtmlOptions {
@@ -136,6 +250,11 @@ export interface ServePrecomputedOptions {
   clientFingerprint?: string;
   /** Override the generated `font-family` name. */
   fontFamilyName?: string;
+  /**
+   * Show a floating dev panel listing characters in the HTML that are not
+   * covered by the font mapping.  Overrides the instance-level `devMode`.
+   */
+  devMode?: boolean;
 }
 
 /**
@@ -193,9 +312,13 @@ const DEFAULT_FONT_GATE_WINDOW_MS = 60 * 1000;
 const DEFAULT_FONT_GATE_MAX_PER_WINDOW = 20;
 const DEFAULT_FONT_GATE_BLOCK_AFTER_FAILURES = 5;
 const DEFAULT_FONT_GATE_BLOCK_MS = 10 * 60 * 1000;
+const MAX_GATE_KEY_IP_LEN = 64;
+const MAX_GATE_KEY_UA_LEN = 512;
 const PUA_START = 0xE000;
 const PUA_END = 0xF8FF;
 const MAX_MAPPABLE_CHARS = PUA_END - PUA_START + 1;
+const DEFAULT_VARIANT_COUNT = 1;
+const MAX_VARIANT_COUNT = 16;
 const DEFAULT_DIGIT_VARIANT_COUNT = 4;
 const MAX_DIGIT_VARIANT_COUNT = 16;
 const DEFAULT_MAPPING_ROTATION_INTERVAL_MS = 2 * 60 * 1000;
@@ -205,6 +328,53 @@ const DIGIT_VARIANT_TARGETS = new Set([
   "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
   "０", "１", "２", "３", "４", "５", "６", "７", "８", "９",
 ]);
+
+const NAME_FIELDS_TO_KEEP_GENERATED = new Set([
+  "fontFamily",
+  "fontSubfamily",
+  "fullName",
+  "postScriptName",
+  "preferredFamily",
+  "preferredSubfamily",
+  "compatibleFullName",
+  "wwsFamily",
+  "wwsSubfamily",
+  "postScriptFindFontName",
+  "uniqueID",
+]);
+
+function cloneNameValue(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.slice();
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = v;
+  return out;
+}
+
+function preserveSourceNameTable(srcFont: any, newFont: any): void {
+  const srcNames = srcFont?.names;
+  if (!srcNames || typeof srcNames !== "object") return;
+
+  if (!newFont.names || typeof newFont.names !== "object") {
+    newFont.names = {};
+  }
+
+  // font.names has the structure: { windows: { copyright: { en: "..." }, ... }, macintosh: {...}, unicode: {...} }
+  // Iterate each platform (windows/macintosh/unicode), then each field within the platform.
+  // Skip fields that were generated for the obfuscated font identity (family name, PS name, etc.)
+  // so license/copyright/trademark and attribution metadata from the source are preserved.
+  const newNames = newFont.names as Record<string, Record<string, unknown>>;
+  for (const [platform, platformRecord] of Object.entries(srcNames as Record<string, unknown>)) {
+    if (!platformRecord || typeof platformRecord !== "object") continue;
+    if (!newNames[platform] || typeof newNames[platform] !== "object") {
+      newNames[platform] = {};
+    }
+    for (const [field, value] of Object.entries(platformRecord as Record<string, unknown>)) {
+      if (NAME_FIELDS_TO_KEEP_GENERATED.has(field)) continue;
+      newNames[platform][field] = cloneNameValue(value);
+    }
+  }
+}
 
 function secureRandU32(): number {
   const buf = new Uint32Array(1);
@@ -242,16 +412,107 @@ function defaultAlphabet(): string[] {
   return out;
 }
 
+function extractUserVisibleAttributeText(fragment: string): string {
+  let out = "";
+  let i = 0;
+  let noParseTag: string | null = null;
+
+  while (i < fragment.length) {
+    const lt = fragment.indexOf("<", i);
+    if (lt === -1) break;
+
+    if (fragment.startsWith("<!--", lt)) {
+      const end = fragment.indexOf("-->", lt + 4);
+      i = end === -1 ? fragment.length : end + 3;
+      continue;
+    }
+
+    if (noParseTag && !startsWithClosingTagAt(fragment, lt, noParseTag)) {
+      i = lt + 1;
+      continue;
+    }
+
+    const tagEnd = indexOfTagEnd(fragment, lt + 1);
+    const rawTag = fragment.slice(lt, tagEnd + 1);
+    const tagName = parseTagName(rawTag);
+
+    if (/^<\s*\//.test(rawTag)) {
+      if (tagName && noParseTag === tagName) noParseTag = null;
+      i = tagEnd + 1;
+      continue;
+    }
+
+    for (const attr of parseTagAttributes(rawTag)) {
+      if (attr.value === undefined) continue;
+      if (
+        attr.nameLower === "placeholder" ||
+        attr.nameLower === "aria-label" ||
+        attr.nameLower === "aria-placeholder" ||
+        attr.nameLower === "title" ||
+        attr.nameLower === "alt"
+      ) {
+        out += `${attr.value} `;
+      }
+    }
+
+    const selfClose = /\/\s*>$/.test(rawTag);
+    if (!selfClose && (tagName === "script" || tagName === "style" || tagName === "textarea")) {
+      noParseTag = tagName;
+    }
+
+    i = tagEnd + 1;
+  }
+
+  return out;
+}
+
+function obfuscateUserVisibleAttributes(
+  rawTag: string,
+  mapping: Record<string, number>,
+  variants?: Record<string, number[]>,
+  variantSeed?: number,
+): string {
+  const attrs = parseTagAttributes(rawTag);
+  if (attrs.length === 0) return rawTag;
+
+  let out = rawTag;
+  for (let i = attrs.length - 1; i >= 0; i--) {
+    const attr = attrs[i];
+    if (attr.valueStart < 0 || attr.valueEnd < attr.valueStart) continue;
+    if (
+      attr.nameLower !== "placeholder" &&
+      attr.nameLower !== "aria-label" &&
+      attr.nameLower !== "aria-placeholder" &&
+      attr.nameLower !== "title" &&
+      attr.nameLower !== "alt"
+    ) continue;
+
+    const encoded = obfuscateTextWithMapping(
+      attr.value ?? "",
+      mapping,
+      variants,
+      variantSeed,
+      true,
+    );
+    out = out.slice(0, attr.valueStart) + encoded + out.slice(attr.valueEnd + 1);
+  }
+  return out;
+}
+
+function collectUniqueVisibleChars(text: string, seen: Set<string>, out: string[]): void {
+  for (const { ch } of decodeHtmlTextUnits(text, true)) {
+    if (/\s/u.test(ch)) continue;
+    if (seen.has(ch)) continue;
+    seen.add(ch);
+    out.push(ch);
+  }
+}
+
 function extractTextCharsFromHtml(html: string): string[] {
   // Also extract characters from user-visible attribute values (placeholder, aria-label, alt, title).
   // These are rendered to the user but live inside tags, so the strip-tags pass below would miss them.
   // Characters appearing only in these attributes must still be included in the font alphabet.
-  const attrRe = /\b(?:placeholder|aria-label|aria-placeholder|title|alt)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
-  let attrText = "";
-  let attrMatch: RegExpExecArray | null;
-  while ((attrMatch = attrRe.exec(html)) !== null) {
-    attrText += (attrMatch[1] ?? attrMatch[2] ?? "") + " ";
-  }
+  const attrText = extractUserVisibleAttributeText(html);
 
   const stripped = attrText + html
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
@@ -259,14 +520,97 @@ function extractTextCharsFromHtml(html: string): string[] {
     .replace(/<textarea\b[^>]*>[\s\S]*?<\/textarea>/gi, " ")
     .replace(/<[^>]+>/g, " ");
 
+  // Decode numeric char refs so that &#20013; is counted as '中', not as the
+  // literal ASCII chars '&', '#', '2', etc.  This must mirror the decoding that
+  // obfuscateTextWithMapping does at encode time; otherwise entity-encoded chars
+  // would not be added to the candidate alphabet and would leak as plaintext.
   const chars: string[] = [];
   const seen = new Set<string>();
-  for (const ch of stripped) {
-    if (/\s/u.test(ch)) continue;
-    if (seen.has(ch)) continue;
-    seen.add(ch);
-    chars.push(ch);
+  collectUniqueVisibleChars(stripped, seen, chars);
+  return chars;
+}
+
+function extractTextCharsFromSelectorScopeHtml(html: string, selectors: string[]): string[] {
+  const sets = buildSelectorSets(selectors);
+  if (sets.ids.size === 0 && sets.classes.size === 0) return [];
+
+  const chars: string[] = [];
+  const seen = new Set<string>();
+  const stack: SelectorFrame[] = [];
+  let targetDepth = 0;
+  let noParseDepth = 0;
+  let i = 0;
+
+  while (i < html.length) {
+    if (html[i] !== "<") {
+      const next = html.indexOf("<", i);
+      const end = next === -1 ? html.length : next;
+      if (targetDepth > 0 && noParseDepth === 0) {
+        collectUniqueVisibleChars(html.slice(i, end), seen, chars);
+      }
+      i = end;
+      continue;
+    }
+
+    if (html.startsWith("<!--", i)) {
+      const end = html.indexOf("-->", i + 4);
+      i = end === -1 ? html.length : end + 3;
+      continue;
+    }
+
+    // Guard: inside a raw-text element (script/style/textarea), only its own
+    // closing tag is a structural HTML token.  Any other `<` is raw content and
+    // must not be parsed as a tag — doing so would corrupt the stack by
+    // prematurely popping ancestor elements (e.g. `</div>` inside a textarea).
+    if (noParseDepth > 0) {
+      let innerTag = "";
+      for (let k = stack.length - 1; k >= 0; k--) {
+        if (stack[k].inNoParseScope) { innerTag = stack[k].tagName; break; }
+      }
+      if (innerTag && !startsWithClosingTagAt(html, i, innerTag)) {
+        i++; // skip `<` as raw content
+        continue;
+      }
+    }
+
+    const tagEnd = indexOfTagEnd(html, i + 1);
+    const rawTag = html.slice(i, tagEnd + 1);
+
+    if (/^<\s*\//.test(rawTag)) {
+      const closeName = parseTagName(rawTag);
+      if (closeName) {
+        for (let k = stack.length - 1; k >= 0; k--) {
+          if (stack[k].tagName !== closeName) continue;
+          for (let p = stack.length - 1; p >= k; p--) {
+            const frame = stack.pop()!;
+            if (frame.inTargetScope) targetDepth -= 1;
+            if (frame.inNoParseScope) noParseDepth -= 1;
+          }
+          break;
+        }
+      }
+      i = tagEnd + 1;
+      continue;
+    }
+
+    const tagName = parseTagName(rawTag);
+    const selfClose = /\/\s*>$/.test(rawTag) || (tagName !== null && HTML_VOID_ELEMENTS.has(tagName));
+    const noParseTag = tagName === "script" || tagName === "style" || tagName === "textarea";
+    const inTargetScope = targetDepth > 0 || matchesSelectorSets(rawTag, sets);
+
+    if (inTargetScope && noParseDepth === 0) {
+      collectUniqueVisibleChars(extractUserVisibleAttributeText(rawTag), seen, chars);
+    }
+
+    if (tagName && !selfClose) {
+      stack.push({ tagName, inTargetScope, inNoParseScope: noParseTag });
+      if (inTargetScope) targetDepth += 1;
+      if (noParseTag) noParseDepth += 1;
+    }
+
+    i = tagEnd + 1;
   }
+
   return chars;
 }
 
@@ -314,6 +658,224 @@ function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
+// ---------------------------------------------------------------------------
+// PUA pool construction
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a shuffled pool of BMP PUA codepoints (U+E000–U+F8FF, 6 400 slots).
+ * The pool is a flat array of integers; callers index into it to assign
+ * primary and variant PUA codepoints.
+ */
+function buildPuaPool(seed: number): number[] {
+  const pool: number[] = [];
+  for (let i = PUA_START; i <= PUA_END; i++) pool.push(i);
+  return shuffle(pool, mulberry32(seed));
+}
+
+// ---------------------------------------------------------------------------
+// Variant allocator strategies
+// ---------------------------------------------------------------------------
+
+interface AllocatorStrategy {
+  distribute(
+    chars: string[],
+    remaining: number,
+    opts: { variantCount: number; digitVariantCount: number },
+  ): Record<string, number>;
+}
+
+/**
+ * Uniform allocator: each character requests `variantCount - 1` additional
+ * slots (digits use `max(variantCount, digitVariantCount) - 1`).  The -1
+ * accounts for the primary slot already consumed in Phase 2.
+ */
+function uniformDistribute(
+  chars: string[],
+  _remaining: number,
+  opts: { variantCount: number; digitVariantCount: number },
+): Record<string, number> {
+  const extra: Record<string, number> = {};
+  for (const ch of chars) {
+    const target = DIGIT_VARIANT_TARGETS.has(ch)
+      ? Math.max(opts.variantCount, opts.digitVariantCount)
+      : opts.variantCount;
+    extra[ch] = Math.max(0, target - 1);
+  }
+  return extra;
+}
+
+/** Weight table used by the class-weighted allocator. */
+const CLASS_WEIGHTS: Record<string, number> = {
+  digit:    4.0, // 0–9, ０–９ (frequent in prices/counters; high analytical value)
+  currency: 3.0, // ¥ $ € £ ¢ ₩ ₹
+  symbol:   2.0, // punctuation / operator characters
+  latin:    1.5, // ASCII letters
+  kanji:    1.2, // CJK ideographs (large count naturally spreads slots)
+  kana:     1.0, // hiragana / katakana (default weight)
+  other:    1.0,
+};
+
+function charClass(ch: string): keyof typeof CLASS_WEIGHTS {
+  const cp = ch.codePointAt(0)!;
+  if (DIGIT_VARIANT_TARGETS.has(ch)) return "digit";
+  if ("¥$€£¢₩₹".includes(ch)) return "currency";
+  // Symbols: punctuation/operator ASCII ranges + ASCII brackets/braces/backtick/tilde
+  // (0x5B–0x60 and 0x7B–0x7E are deliberately kept as "symbol", NOT "latin").
+  if (
+    (cp >= 0x21 && cp <= 0x2F) ||
+    (cp >= 0x3A && cp <= 0x40) ||
+    (cp >= 0x5B && cp <= 0x60) ||
+    (cp >= 0x7B && cp <= 0x7E)
+  ) return "symbol";
+  // Latin: uppercase A–Z (0x41–0x5A) and lowercase a–z (0x61–0x7A) only.
+  if ((cp >= 0x41 && cp <= 0x5A) || (cp >= 0x61 && cp <= 0x7A)) return "latin";
+  if (cp >= 0x4E00 && cp <= 0x9FFF) return "kanji";
+  if ((cp >= 0x3041 && cp <= 0x309F) || (cp >= 0x30A0 && cp <= 0x30FF)) return "kana";
+  return "other";
+}
+
+/**
+ * Class-weighted allocator: digits, currency symbols, and Latin characters
+ * receive proportionally more variant slots based on a static weight table.
+ * Does not require per-request frequency data (unlike frequency-weighted).
+ */
+function classWeightedDistribute(
+  chars: string[],
+  remaining: number,
+  opts: { variantCount: number; digitVariantCount: number },
+): Record<string, number> {
+  const maxPerChar = Math.max(opts.variantCount, opts.digitVariantCount) - 1;
+  if (maxPerChar <= 0 || chars.length === 0) {
+    const extra: Record<string, number> = {};
+    for (const ch of chars) extra[ch] = 0;
+    return extra;
+  }
+
+  const weights = chars.map((ch) => CLASS_WEIGHTS[charClass(ch)]);
+  const totalWeight = weights.reduce((s, w) => s + w, 0);
+  const extra: Record<string, number> = {};
+  let used = 0;
+
+  for (let i = 0; i < chars.length; i++) {
+    const share = Math.min(
+      maxPerChar,
+      Math.floor((weights[i] / totalWeight) * remaining),
+    );
+    extra[chars[i]] = share;
+    used += share;
+  }
+
+  // Distribute leftover slots in descending weight order.
+  const sorted = chars
+    .map((ch, i) => ({ ch, w: weights[i] }))
+    .sort((a, b) => b.w - a.w);
+  let leftover = remaining - used;
+  for (const { ch } of sorted) {
+    if (leftover <= 0) break;
+    if (extra[ch] < maxPerChar) {
+      extra[ch]++;
+      leftover--;
+    }
+  }
+  return extra;
+}
+
+// ---------------------------------------------------------------------------
+// Adaptive allocation core
+// ---------------------------------------------------------------------------
+
+interface AdaptiveAllocateOptions {
+  budgetPolicy: BudgetPolicy;
+  variantCount: number;
+  digitVariantCount: number;
+  minPrimaryGuarantee: number;
+  onBudgetDegrade?: (event: BudgetDegradeEvent) => void;
+  allocator: AllocatorStrategy;
+}
+
+/**
+ * Three-phase adaptive PUA slot allocator.
+ *
+ * Phase 1 — guarantee check: throws if the pool cannot provide `minPrimaryGuarantee`
+ *   slots per character.
+ * Phase 2 — primary 1:1 mapping: every character receives exactly one primary PUA slot.
+ * Phase 3 — surplus variant distribution: remaining slots are distributed by `allocator`.
+ *
+ * No character is ever left unmapped (plaintext leakage is impossible).
+ * In `"adaptive"` mode a shortfall only reduces variant count, never primary coverage.
+ * In `"strict"` mode any shortfall throws immediately; `onBudgetDegrade` is NOT called.
+ */
+function adaptiveAllocate(
+  usable: string[],
+  pool: number[],
+  options: AdaptiveAllocateOptions,
+): { mapping: Record<string, number>; variants: Record<string, number[]> } {
+  const totalPool = pool.length;
+
+  // Phase 1: primary guarantee check.
+  if (usable.length > totalPool) {
+    throw new Error(
+      `[FontObfuscator] critical overflow: ${usable.length} characters exceed PUA pool of ` +
+      `${totalPool} slots. Primary mapping is impossible. Reduce the alphabet.`,
+    );
+  }
+  if (usable.length * options.minPrimaryGuarantee > totalPool) {
+    throw new Error(
+      `[FontObfuscator] minPrimaryGuarantee (${options.minPrimaryGuarantee}) cannot be ` +
+      `satisfied: needs ${usable.length * options.minPrimaryGuarantee} slots but pool has ` +
+      `${totalPool}.`,
+    );
+  }
+
+  const mapping: Record<string, number> = {};
+  const variants: Record<string, number[]> = {};
+  let idx = 0;
+
+  // Phase 2: 1:1 primary assignment.
+  for (const ch of usable) {
+    mapping[ch] = pool[idx++];
+    variants[ch] = [mapping[ch]];
+  }
+
+  // Phase 3: surplus variant distribution.
+  const remaining = totalPool - usable.length;
+  const extra = options.allocator.distribute(usable, remaining, options);
+  let shortfall = 0;
+  for (const ch of usable) {
+    const want = extra[ch] ?? 0;
+    let got = 0;
+    while (got < want && idx < pool.length) {
+      variants[ch].push(pool[idx++]);
+      got++;
+    }
+    if (got < want) shortfall++;
+  }
+
+  if (shortfall > 0) {
+    // In "strict" mode throw immediately — onBudgetDegrade is documented as
+    // "never called in strict mode" and must not be invoked before the throw.
+    if (options.budgetPolicy === "strict") {
+      throw new Error(
+        `[FontObfuscator] strict mode: ${shortfall} character(s) received fewer variants ` +
+        `than requested. Lower variantCount or reduce the alphabet.`,
+      );
+    }
+    // "adaptive" mode: fire the degradation hook so callers can emit metrics.
+    const event: BudgetDegradeEvent = {
+      totalChars: usable.length,
+      primaryMapped: usable.length, // always all chars in adaptive mode
+      variantShortfall: shortfall,
+      droppedChars: 0,             // always 0 in adaptive mode
+      slotsUsed: idx,
+      slotsAvailable: totalPool,
+    };
+    options.onBudgetDegrade?.(event);
+  }
+
+  return { mapping, variants };
+}
+
 function normalizeSelectors(selectors: string[]): string[] {
   const out: string[] = [];
   for (const raw of selectors) {
@@ -347,24 +909,74 @@ function normalizeClientFingerprint(value: string | undefined): string | undefin
   return v.length > 0 ? v : undefined;
 }
 
-/**
- * Decode numeric HTML character references (&#48; &#x30;) in a text node.
- * Structural named entities (&amp; &lt; &gt; &quot;) are intentionally
- * left encoded because replacing them with raw characters would corrupt the
- * surrounding HTML structure.
- */
-function decodeNumericCharRefs(text: string): string {
-  return text
-    .replace(/&#(\d{1,7});/g, (_, dec) => {
-      const cp = Number(dec);
-      return Number.isFinite(cp) && cp >= 0 && cp <= 0x10ffff
-        ? String.fromCodePoint(cp)
-        : _;
-    })
-    .replace(/&#x([0-9a-fA-F]{1,6});/gi, (_, hex) => {
-      const cp = parseInt(hex, 16);
-      return cp >= 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : _;
-    });
+interface DecodedHtmlUnit {
+  ch: string;
+  raw: string;
+}
+
+function escapeHtmlTextChar(ch: string): string {
+  if (ch === "&") return "&amp;";
+  if (ch === "<") return "&lt;";
+  if (ch === ">") return "&gt;";
+  if (ch === '"') return "&quot;";
+  if (ch === "'") return "&apos;";
+  return ch;
+}
+
+function isValidScalar(cp: number): boolean {
+  return cp >= 0 && cp <= 0x10ffff && !(cp >= 0xd800 && cp <= 0xdfff);
+}
+
+function decodeHtmlEntity(raw: string, decodeNamedEntities: boolean): string | null {
+  const dec = raw.match(/^&#(\d{1,7});$/);
+  if (dec) {
+    const cp = Number(dec[1]);
+    return Number.isFinite(cp) && isValidScalar(cp) ? String.fromCodePoint(cp) : null;
+  }
+
+  const hex = raw.match(/^&#x([0-9a-fA-F]{1,6});$/i);
+  if (hex) {
+    const cp = parseInt(hex[1], 16);
+    return isValidScalar(cp) ? String.fromCodePoint(cp) : null;
+  }
+
+  if (!decodeNamedEntities) return null;
+  // Decode the full HTML named-entity set (e.g. &copy;, &euro;, &hellip;)
+  // so candidate collection and obfuscation operate on visible characters.
+  const decoded = he.decode(raw, {
+    isAttributeValue: false,
+    strict: false,
+  });
+  return decoded !== raw ? decoded : null;
+}
+
+function decodeHtmlTextUnits(text: string, decodeNamedEntities = false): DecodedHtmlUnit[] {
+  const out: DecodedHtmlUnit[] = [];
+  for (let i = 0; i < text.length;) {
+    if (text[i] === "&") {
+      const semi = text.indexOf(";", i + 1);
+      if (semi !== -1) {
+        const raw = text.slice(i, semi + 1);
+        const decoded = decodeHtmlEntity(raw, decodeNamedEntities);
+        if (decoded !== null) {
+          for (let k = 0; k < decoded.length;) {
+            const cp = decoded.codePointAt(k)!;
+            const ch = String.fromCodePoint(cp);
+            out.push({ ch, raw: escapeHtmlTextChar(ch) });
+            k += cp > 0xffff ? 2 : 1;
+          }
+          i = semi + 1;
+          continue;
+        }
+      }
+    }
+
+    const cp = text.codePointAt(i)!;
+    const ch = String.fromCodePoint(cp);
+    out.push({ ch, raw: ch });
+    i += cp > 0xffff ? 2 : 1;
+  }
+  return out;
 }
 
 function obfuscateTextWithMapping(
@@ -372,16 +984,17 @@ function obfuscateTextWithMapping(
   mapping: Record<string, number>,
   variants?: Record<string, number[]>,
   variantSeed?: number,
+  decodeNamedEntities = false,
 ): string {
-  // Decode numeric character references so that e.g. &#48; is treated as '0'
-  // and gets the same PUA mapping as the literal character.
-  const decoded = decodeNumericCharRefs(input);
-  const useVariants = !!variants && !!variantSeed;
+  const decodedUnits = decodeHtmlTextUnits(input, decodeNamedEntities);
+  const decoded = decodedUnits.map(({ ch }) => ch).join("");
+  // Use `!== undefined` rather than truthiness so that variantSeed=0 still
+  // activates variant randomization (mulberry32(0) is a valid PRNG state).
+  const useVariants = variants != null && variantSeed !== undefined;
   const rng = useVariants ? mulberry32((variantSeed! ^ fnv1a32(decoded)) >>> 0) : null;
   let out = "";
-  for (let i = 0; i < decoded.length;) {
-    const cp = decoded.codePointAt(i)!;
-    const ch = String.fromCodePoint(cp);
+  for (const unit of decodedUnits) {
+    const ch = unit.ch;
     let mapped = mapping[ch];
     if (useVariants) {
       const choices = variants![ch];
@@ -389,8 +1002,7 @@ function obfuscateTextWithMapping(
         mapped = choices[Math.floor(rng() * choices.length)];
       }
     }
-    out += mapped ? String.fromCodePoint(mapped) : ch;
-    i += cp > 0xffff ? 2 : 1;
+    out += mapped ? String.fromCodePoint(mapped) : unit.raw;
   }
   return out;
 }
@@ -511,6 +1123,79 @@ interface SelectorFrame {
   inNoParseScope: boolean;
 }
 
+interface ParsedTagAttribute {
+  nameLower: string;
+  value: string | undefined;
+  valueStart: number;
+  valueEnd: number;
+}
+
+function parseTagAttributes(rawTag: string): ParsedTagAttribute[] {
+  const out: ParsedTagAttribute[] = [];
+  if (!rawTag.startsWith("<")) return out;
+
+  let i = 1;
+  while (i < rawTag.length && /\s/.test(rawTag[i])) i++;
+  if (rawTag[i] === "/") i++;
+  while (i < rawTag.length && !/[\s/>]/.test(rawTag[i])) i++;
+
+  while (i < rawTag.length) {
+    while (i < rawTag.length && /\s/.test(rawTag[i])) i++;
+    if (i >= rawTag.length || rawTag[i] === ">") break;
+    if (rawTag[i] === "/" && rawTag[i + 1] === ">") break;
+
+    const nameStart = i;
+    while (i < rawTag.length && !/[\s=/>]/.test(rawTag[i])) i++;
+    if (i === nameStart) {
+      i++;
+      continue;
+    }
+
+    const nameLower = rawTag.slice(nameStart, i).toLowerCase();
+    while (i < rawTag.length && /\s/.test(rawTag[i])) i++;
+
+    if (rawTag[i] !== "=") {
+      out.push({ nameLower, value: undefined, valueStart: -1, valueEnd: -1 });
+      continue;
+    }
+
+    i++;
+    while (i < rawTag.length && /\s/.test(rawTag[i])) i++;
+    if (i >= rawTag.length) {
+      out.push({ nameLower, value: "", valueStart: -1, valueEnd: -1 });
+      break;
+    }
+
+    if (rawTag[i] === '"' || rawTag[i] === "'") {
+      const quote = rawTag[i];
+      const valueStart = i + 1;
+      i++;
+      while (i < rawTag.length && rawTag[i] !== quote) i++;
+      const valueEnd = Math.max(valueStart - 1, i - 1);
+      out.push({
+        nameLower,
+        value: rawTag.slice(valueStart, valueEnd + 1),
+        valueStart,
+        valueEnd,
+      });
+      if (i < rawTag.length && rawTag[i] === quote) i++;
+      continue;
+    }
+
+    const valueStart = i;
+    while (i < rawTag.length && !/[\s>]/.test(rawTag[i])) i++;
+    const valueEnd = i - 1;
+    out.push({
+      nameLower,
+      value: rawTag.slice(valueStart, valueEnd + 1),
+      valueStart,
+      valueEnd,
+    });
+  }
+
+  return out;
+}
+
 function buildSelectorSets(selectors: string[]): SelectorSets {
   const ids = new Set<string>();
   const classes = new Set<string>();
@@ -540,19 +1225,35 @@ function indexOfTagEnd(html: string, from: number): number {
   return html.length - 1;
 }
 
+/**
+ * Returns true if `html[pos]` begins the closing tag `</tagName` (case-insensitive)
+ * AND the character immediately after the tag name is `>`, whitespace, `/`, or end
+ * of string — so `</scriptx>` does NOT match `</script>`.
+ * Used to distinguish the structural end-tag of a raw-text element (script/style/
+ * textarea) from any literal `<` characters in its raw content.
+ */
+function startsWithClosingTagAt(html: string, pos: number, tagName: string): boolean {
+  if (html[pos] !== "<" || html[pos + 1] !== "/") return false;
+  const end = pos + 2 + tagName.length;
+  if (end > html.length) return false;
+  for (let k = 0; k < tagName.length; k++) {
+    if (html[pos + 2 + k].toLowerCase() !== tagName[k]) return false;
+  }
+  const next = html[end];
+  return next === ">" || next === undefined || /[\s/]/.test(next);
+}
+
 function parseTagName(rawTag: string): string | null {
   const m = rawTag.match(/^<\s*\/?\s*([a-zA-Z][\w:-]*)/);
   return m ? m[1].toLowerCase() : null;
 }
 
 function parseAttributeValue(rawTag: string, attrName: string): string | undefined {
-  const re = new RegExp(
-    `\\b${attrName}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'=<>` + "`" + `]+))`,
-    "i",
-  );
-  const m = rawTag.match(re);
-  if (!m) return undefined;
-  return m[1] ?? m[2] ?? m[3] ?? "";
+  const target = attrName.toLowerCase();
+  for (const attr of parseTagAttributes(rawTag)) {
+    if (attr.nameLower === target) return attr.value ?? "";
+  }
+  return undefined;
 }
 
 function matchesSelectorSets(rawTag: string, sets: SelectorSets): boolean {
@@ -597,7 +1298,7 @@ function obfuscateSelectorScopeHtml(
       const end = next === -1 ? html.length : next;
       const chunk = html.slice(i, end);
       out += (targetDepth > 0 && noParseDepth === 0)
-        ? obfuscateTextWithMapping(chunk, mapping, variants, variantSeed)
+        ? obfuscateTextWithMapping(chunk, mapping, variants, variantSeed, true)
         : chunk;
       i = end;
       continue;
@@ -609,6 +1310,22 @@ function obfuscateSelectorScopeHtml(
       out += html.slice(i, stop);
       i = stop;
       continue;
+    }
+
+    // Guard: inside a raw-text element (script/style/textarea), only its own
+    // closing tag is a structural HTML token.  Any other `<` is raw content and
+    // must not be parsed as a tag — doing so would corrupt the stack by
+    // prematurely popping ancestor elements (e.g. `</div>` inside a textarea).
+    if (noParseDepth > 0) {
+      let innerTag = "";
+      for (let k = stack.length - 1; k >= 0; k--) {
+        if (stack[k].inNoParseScope) { innerTag = stack[k].tagName; break; }
+      }
+      if (innerTag && !startsWithClosingTagAt(html, i, innerTag)) {
+        out += html[i]; // output `<` as-is (raw content)
+        i++;
+        continue;
+      }
     }
 
     const tagEnd = indexOfTagEnd(html, i + 1);
@@ -638,6 +1355,9 @@ function obfuscateSelectorScopeHtml(
     const selfClose = /\/\s*>$/.test(rawTag) || (tagName !== null && HTML_VOID_ELEMENTS.has(tagName));
     const noParseTag = tagName === "script" || tagName === "style" || tagName === "textarea";
     const inTargetScope = targetDepth > 0 || matchesSelectorSets(rawTag, sets);
+    const outTag = inTargetScope && noParseDepth === 0
+      ? obfuscateUserVisibleAttributes(rawTag, mapping, variants, variantSeed)
+      : rawTag;
 
     if (tagName && !selfClose) {
       stack.push({ tagName, inTargetScope, inNoParseScope: noParseTag });
@@ -645,7 +1365,7 @@ function obfuscateSelectorScopeHtml(
       if (noParseTag) noParseDepth += 1;
     }
 
-    out += rawTag;
+    out += outTag;
     i = tagEnd + 1;
   }
 
@@ -655,13 +1375,19 @@ function obfuscateSelectorScopeHtml(
 function injectBeforeEndTag(html: string, tag: string, injection: string): string {
   const needle = `</${tag}>`;
   const lowerHtml = html.toLowerCase();
-  // Build a list of byte ranges that are inside <script> or <style> blocks so we
-  // never match a closing tag that appears as a string literal in JavaScript.
+  // Build a list of ranges where textual `</tag>` tokens are not structural HTML
+  // closers (comments, script/style/textarea contents). Without this, a fake
+  // `</head>` inside a comment can steal the insertion point.
   const noParseRanges: Array<[number, number]> = [];
-  const noParseRe = /<(?:script|style)\b[^>]*>[\s\S]*?<\/(?:script|style)>/gi;
-  let npm: RegExpExecArray | null;
-  while ((npm = noParseRe.exec(html)) !== null) {
-    noParseRanges.push([npm.index, npm.index + npm[0].length]);
+  const noParseRes = [
+    /<!--([\s\S]*?)-->/g,
+    /<(?:script|style|textarea)\b[^>]*>[\s\S]*?<\/(?:script|style|textarea)>/gi,
+  ];
+  for (const noParseRe of noParseRes) {
+    let npm: RegExpExecArray | null;
+    while ((npm = noParseRe.exec(html)) !== null) {
+      noParseRanges.push([npm.index, npm.index + npm[0].length]);
+    }
   }
 
   let idx = lowerHtml.lastIndexOf(needle);
@@ -728,14 +1454,20 @@ export class FontObfuscator {
   private scrambleCache = new Map<string, Promise<ScrambleResult>>();
   private srcFontPromise: Promise<any> | null = null;
   private readonly mappingRotationIntervalMs: number;
-  private rotatingMappingEntry: { pm: Promise<PrecomputedMapping>; createdAt: number } | null = null;
+  private rotatingMappingMap = new Map<string, { pm: Promise<PrecomputedMapping>; createdAt: number }>();
   private rotatingPageMap = new Map<string, { page: Promise<PrecomputedPage>; createdAt: number }>();
   private readonly scrambleCacheMaxSize = 10;
   private readonly fontGateMaxSize = 50_000;
   private readonly fontTicketsMaxSize = 200_000;
+  private readonly rotatingMappingMapMaxSize = 50;
   private readonly rotatingPageMapMaxSize = 50;
+  private readonly variantCount: number;
   private readonly digitVariantCount: number;
   private readonly trustedProxies: string[] | undefined;
+  private readonly budgetPolicy: BudgetPolicy;
+  private readonly variantAllocator: VariantAllocator;
+  private readonly minPrimaryGuarantee: number;
+  private readonly onBudgetDegrade?: (event: BudgetDegradeEvent) => void;
   private lastCleanupAt = 0;
   private readonly recentSeeds = new Set<number>();
 
@@ -770,14 +1502,66 @@ export class FontObfuscator {
       throw new Error(`fontDisplay must be one of auto|block|swap|fallback|optional, got: ${requestedFontDisplay}`);
     }
     this.fontDisplay = requestedFontDisplay;
-    this.alphabet = options.alphabet ?? defaultAlphabet();
+    // Deduplicate alphabet entries while preserving insertion order.
+    // Duplicates in user-supplied alphabets would inflate the budget estimate and
+    // could cause false strict-mode throws or unnecessary legacy-mode warnings.
+    this.alphabet = [...new Set(options.alphabet ?? defaultAlphabet())];
     this.devMode = options.devMode ?? false;
+    this.variantCount = Math.max(
+      1,
+      Math.min(options.variantCount ?? DEFAULT_VARIANT_COUNT, MAX_VARIANT_COUNT),
+    );
     this.digitVariantCount = Math.max(
       1,
       Math.min(options.digitVariantCount ?? DEFAULT_DIGIT_VARIANT_COUNT, MAX_DIGIT_VARIANT_COUNT),
     );
     this.mappingRotationIntervalMs = options.mappingRotationIntervalMs ?? DEFAULT_MAPPING_ROTATION_INTERVAL_MS;
     this.trustedProxies = options.trustedProxies;
+    this.budgetPolicy = options.budgetPolicy ?? "legacy";
+    this.variantAllocator = options.variantAllocator ?? "uniform";
+    this.minPrimaryGuarantee = Math.max(1, options.minPrimaryGuarantee ?? 1);
+    this.onBudgetDegrade = options.onBudgetDegrade;
+
+    // Static budget check — runs at construction time, before any request arrives.
+    // Only digit chars (DIGIT_VARIANT_TARGETS) use digitVariantCount; all others use
+    // variantCount.  Count each group separately for an accurate estimate.
+    let digitInAlphabet = 0;
+    for (const ch of this.alphabet) {
+      if (DIGIT_VARIANT_TARGETS.has(ch)) digitInAlphabet++;
+    }
+    const nonDigitInAlphabet = this.alphabet.length - digitInAlphabet;
+    const estimatedSlots =
+      nonDigitInAlphabet * this.variantCount +
+      digitInAlphabet * Math.max(this.variantCount, this.digitVariantCount);
+    if (this.alphabet.length > MAX_MAPPABLE_CHARS) {
+      throw new Error(
+        `[FontObfuscator] alphabet has ${this.alphabet.length} characters ` +
+        `but the PUA pool only holds ${MAX_MAPPABLE_CHARS}. ` +
+        `Characters beyond the limit cannot be obfuscated and would appear as plaintext. ` +
+        `Reduce your alphabet or split content across multiple FontObfuscator instances.`,
+      );
+    } else if (estimatedSlots > MAX_MAPPABLE_CHARS) {
+      const maxSafeVariant = Math.floor(MAX_MAPPABLE_CHARS / this.alphabet.length);
+      if (this.budgetPolicy === "strict") {
+        throw new Error(
+          `[FontObfuscator] strict mode: estimated PUA slots needed (${estimatedSlots}) ` +
+          `exceeds pool of ${MAX_MAPPABLE_CHARS}. ` +
+          `Lower variantCount to ≤ ${maxSafeVariant} or reduce the alphabet.`,
+        );
+      } else if (this.budgetPolicy === "legacy") {
+        console.warn(
+          `[FontObfuscator] PUA budget warning: estimated PUA slots needed = ${estimatedSlots} ` +
+          `(${nonDigitInAlphabet} non-digit chars × ${this.variantCount} + ` +
+          `${digitInAlphabet} digit chars × ${Math.max(this.variantCount, this.digitVariantCount)}), ` +
+          `but the PUA pool only holds ${MAX_MAPPABLE_CHARS}. ` +
+          `Characters that exceed the budget will be obfuscated but with fewer variants, ` +
+          `weakening frequency-analysis resistance. ` +
+          `Consider setting variantCount ≤ ${maxSafeVariant} for this alphabet size.`,
+        );
+      }
+      // "adaptive": no construction-time warning; handled gracefully at runtime.
+    }
+
     this.hmacSecret = crypto.getRandomValues(new Uint8Array(32));
     const keyMaterial = this.hmacSecret.buffer.slice(
       this.hmacSecret.byteOffset,
@@ -797,10 +1581,14 @@ export class FontObfuscator {
     const prefix = `${this.fontRoutePrefix}/`;
     if (!url.pathname.startsWith(prefix)) return null;
 
-    if (req.method !== "GET" && req.method !== "HEAD") {
+    // Only GET is supported.  HEAD is explicitly rejected because font URLs are
+    // one-time-use tokens: a HEAD request from a CDN probe or reverse proxy would
+    // consume the token before the browser's GET, causing the font fetch to fail
+    // with 410 Gone and leaving the page text unreadable.
+    if (req.method !== "GET") {
       return new Response("Method Not Allowed", {
         status: 405,
-        headers: { "allow": "GET, HEAD" },
+        headers: { "allow": "GET" },
       });
     }
 
@@ -891,7 +1679,7 @@ export class FontObfuscator {
     if (normalizedSelectors.length === 0) {
       return { rawHtml: html, puaHtml: html, seed: 0, candidateAlphabet: [], mapping: {}, variants: {}, selectors: [] };
     }
-    const candidateAlphabet = this.buildCandidateAlphabet(html);
+    const candidateAlphabet = this.buildCandidateAlphabet(html, normalizedSelectors);
     const seed = this.generateFreshSeed();
     const { mapping, variants } = await this.scrambleFont(seed, candidateAlphabet);
     const puaHtml = obfuscateSelectorScopeHtml(
@@ -974,6 +1762,15 @@ export class FontObfuscator {
       secureRandU32(),
     );
     out = injectBeforeEndTag(out, "head", style);
+
+    const devMode = options.devMode ?? this.devMode;
+    if (devMode) {
+      const unmappedChars = this.findUnmappedChars(html, mapping);
+      if (unmappedChars.size > 0) {
+        out = injectBeforeEndTag(out, "body", this.buildDevWarningPanel(unmappedChars, normalizedSelectors));
+      }
+    }
+
     return out;
   }
 
@@ -990,21 +1787,26 @@ export class FontObfuscator {
    *   request arrives.
    */
   getRotatingMapping(hintHtml?: string): Promise<PrecomputedMapping> {
+    const internalKey = JSON.stringify(
+      hintHtml ? this.buildCandidateAlphabet(hintHtml) : this.alphabet,
+    );
     const now = Date.now();
-    if (
-      !this.rotatingMappingEntry ||
-      now - this.rotatingMappingEntry.createdAt >= this.mappingRotationIntervalMs
-    ) {
+    const entry = this.rotatingMappingMap.get(internalKey);
+    if (!entry || now - entry.createdAt >= this.mappingRotationIntervalMs) {
+      if (!entry && this.rotatingMappingMap.size >= this.rotatingMappingMapMaxSize) {
+        const oldest = this.rotatingMappingMap.keys().next().value;
+        if (oldest !== undefined) this.rotatingMappingMap.delete(oldest);
+      }
       const pm = this.precomputeMapping(hintHtml);
       // Clear the cached entry on failure so the next call can retry.
       pm.catch(() => {
-        if (this.rotatingMappingEntry?.pm === pm) {
-          this.rotatingMappingEntry = null;
+        if (this.rotatingMappingMap.get(internalKey)?.pm === pm) {
+          this.rotatingMappingMap.delete(internalKey);
         }
       });
-      this.rotatingMappingEntry = { pm, createdAt: now };
+      this.rotatingMappingMap.set(internalKey, { pm, createdAt: now });
     }
-    return this.rotatingMappingEntry.pm;
+    return this.rotatingMappingMap.get(internalKey)!.pm;
   }
 
   /**
@@ -1023,25 +1825,33 @@ export class FontObfuscator {
     selectors: string[],
     key = "",
   ): Promise<PrecomputedPage> {
+    // Include normalised selectors in the internal map key so that two different
+    // pages sharing the same user-facing `key` (including the default "") but
+    // targeting different selectors never receive each other's cached precomputed
+    // page.  Use the full selector string (not a hash) to avoid collision risk.
+    const normalizedSels = normalizeSelectors(selectors);
+    const selectorKey = normalizedSels.join("\x01");
+    const internalKey = `${key}\x00${selectorKey}`;
     const now = Date.now();
-    const entry = this.rotatingPageMap.get(key);
+    const entry = this.rotatingPageMap.get(internalKey);
     if (!entry || now - entry.createdAt >= this.mappingRotationIntervalMs) {
       // Evict oldest entry when the map is full.
       if (!entry && this.rotatingPageMap.size >= this.rotatingPageMapMaxSize) {
         const oldest = this.rotatingPageMap.keys().next().value;
         if (oldest !== undefined) this.rotatingPageMap.delete(oldest);
       }
-      const page = this.precomputeHtml(html, selectors);
+      // Pass pre-normalised selectors — normalizeSelectors is idempotent so this is safe.
+      const page = this.precomputeHtml(html, normalizedSels);
       // Clear the cached entry on failure so the next call can retry.
       page.catch(() => {
-        if (this.rotatingPageMap.get(key)?.page === page) {
-          this.rotatingPageMap.delete(key);
+        if (this.rotatingPageMap.get(internalKey)?.page === page) {
+          this.rotatingPageMap.delete(internalKey);
         }
       });
       const newEntry = { page, createdAt: now };
-      this.rotatingPageMap.set(key, newEntry);
+      this.rotatingPageMap.set(internalKey, newEntry);
     }
-    return this.rotatingPageMap.get(key)!.page;
+    return this.rotatingPageMap.get(internalKey)!.page;
   }
 
   /**
@@ -1078,6 +1888,15 @@ export class FontObfuscator {
     const source = rawHtml ?? puaHtml;
     let out = obfuscateSelectorScopeHtml(source, selectors, mapping, variants ?? {}, secureRandU32());
     out = injectBeforeEndTag(out, "head", style);
+
+    const devMode = options.devMode ?? this.devMode;
+    if (devMode) {
+      const unmappedChars = this.findUnmappedChars(source, mapping);
+      if (unmappedChars.size > 0) {
+        out = injectBeforeEndTag(out, "body", this.buildDevWarningPanel(unmappedChars, selectors));
+      }
+    }
+
     return out;
   }
 
@@ -1103,7 +1922,7 @@ export class FontObfuscator {
     const selectorKey = normalizeSelectorKey(selectors);
     const selectorHash = fnv1a32(`${pageKey}|${selectorKey}`);
     const scopedSeed = (secureRandU32() ^ selectorHash) >>> 0;
-    const candidateAlphabet = this.buildCandidateAlphabet(html);
+    const candidateAlphabet = this.buildCandidateAlphabet(html, selectors);
     const ticket = await this.createFontTicket({
       seed: scopedSeed,
       pageKey,
@@ -1123,7 +1942,7 @@ export class FontObfuscator {
     const devMode = options.devMode ?? this.devMode;
     let unmappedChars: Set<string> | null = null;
     if (devMode) {
-      unmappedChars = this.findUnmappedChars(html, selectors, mapping);
+      unmappedChars = this.findUnmappedChars(html, mapping);
     }
 
     const family = options.fontFamilyName ?? `Obf_${ticket.token.slice(0, 8)}`;
@@ -1141,10 +1960,12 @@ export class FontObfuscator {
     return out;
   }
 
-  private buildCandidateAlphabet(html: string): string[] {
+  private buildCandidateAlphabet(html: string, selectors?: string[]): string[] {
     const out: string[] = [];
     const seen = new Set<string>();
-    const dynamicChars = extractTextCharsFromHtml(html);
+    const dynamicChars = selectors && selectors.length > 0
+      ? extractTextCharsFromSelectorScopeHtml(html, selectors)
+      : extractTextCharsFromHtml(html);
 
     for (const ch of dynamicChars) {
       if (seen.has(ch)) continue;
@@ -1163,26 +1984,23 @@ export class FontObfuscator {
 
   private findUnmappedChars(
     html: string,
-    selectors: string[],
     mapping: Record<string, number>,
   ): Set<string> {
     const unmapped = new Set<string>();
-    
-    // Strip HTML tags/scripts/styles/textarea, leaving only text content.
+
+    // Strip HTML tags/scripts/styles/textarea, leaving only visible text content.
     // Must mirror the same exclusions as extractTextCharsFromHtml so that
     // chars in noparse blocks (e.g. textarea) are not falsely reported.
-    let textContent = html
+    let textContent = extractUserVisibleAttributeText(html) + html
       .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
       .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
       .replace(/<textarea\b[^>]*>[\s\S]*?<\/textarea>/gi, " ")
       .replace(/<[^>]+>/g, " ");
-    // Also decode numeric char refs so we flag the same chars as the HTML
-    // entity bypass fix in obfuscateTextWithMapping.
-    textContent = decodeNumericCharRefs(textContent);
-    
-    // Check characters in text that would appear in selected elements
-    // (conservative: check all visible text, not just selector-matched elements)
-    for (const ch of textContent) {
+
+    // Conservative check: report any non-whitespace visible character not in the
+    // mapping.  This may include chars outside selected elements — by design,
+    // devMode is a development tool and false positives help identify alphabet gaps.
+    for (const { ch } of decodeHtmlTextUnits(textContent, true)) {
       if (!/\s/u.test(ch) && !mapping[ch]) {
         unmapped.add(ch);
       }
@@ -1196,10 +2014,16 @@ export class FontObfuscator {
   ): string {
     const chars = Array.from(unmappedChars);
     const codes = chars
-      .map(
-        (ch) =>
-          `U+${ch.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")} (${ch})`,
-      )
+      .map((ch) => {
+        const cp = ch.codePointAt(0)!;
+        // HTML-escape the literal character so that chars like < > & in the
+        // alphabet cannot inject markup into the devMode warning panel.
+        const escaped = ch
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+        return `U+${cp.toString(16).toUpperCase().padStart(4, "0")} (${escaped})`;
+      })
       .join(", ");
 
     const style = `
@@ -1308,8 +2132,11 @@ export class FontObfuscator {
 
   private extractClientIp(headers: Headers): string {
     if (this.trustedProxies === undefined) {
-      // Legacy mode (no proxy config): trust leftmost X-Forwarded-For value.
-      return (headers.get("x-forwarded-for") ?? headers.get("cf-connecting-ip") ?? "")
+      // Default mode (no proxy config): use the leftmost X-Forwarded-For value as-is.
+      // Do NOT fall back to cf-connecting-ip here: if the server is not actually behind
+      // Cloudflare, a client could set that header to spoof their rate-limiter key.
+      // cf-connecting-ip is only trustworthy when Cloudflare IPs are in trustedProxies.
+      return (headers.get("x-forwarded-for") ?? "")
         .split(",")[0]
         .trim();
     }
@@ -1337,8 +2164,9 @@ export class FontObfuscator {
   }
 
   private getGateKey(req: Request): string {
-    const fp = this.getClientFingerprint(req);
-    return toHex32(fnv1a32(fp));
+    const ua = (req.headers.get("user-agent") ?? "").slice(0, MAX_GATE_KEY_UA_LEN);
+    const ip = this.extractClientIp(req.headers).slice(0, MAX_GATE_KEY_IP_LEN);
+    return `${ip}|${ua}`;
   }
 
   private checkAndTouchGate(key: string): Response | null {
@@ -1352,12 +2180,21 @@ export class FontObfuscator {
 
     if (state.blockedUntil > now) {
       this.fontGate.set(key, state);
-      return new Response("Too Many Requests", { status: 429 });
+      const retryAfterSec = Math.max(1, Math.ceil((state.blockedUntil - now) / 1000));
+      return new Response("Too Many Requests", {
+        status: 429,
+        headers: { "retry-after": String(retryAfterSec) },
+      });
     }
 
     if (state.resetAt <= now) {
       state.count = 0;
       state.resetAt = now + DEFAULT_FONT_GATE_WINDOW_MS;
+      // Also reset the failure counter so that transient errors in a past window
+      // do not accumulate into a block in the next window.  Without this reset,
+      // a user with 4 failures in window N + 1 failure in window N+1 would be
+      // blocked even though their per-window failure rate was within limits.
+      state.failures = 0;
     }
 
     state.count += 1;
@@ -1369,7 +2206,11 @@ export class FontObfuscator {
     }
     this.fontGate.set(key, state);
     if (state.count > DEFAULT_FONT_GATE_MAX_PER_WINDOW) {
-      return new Response("Too Many Requests", { status: 429 });
+      const retryAfterSec = Math.max(1, Math.ceil((state.resetAt - now) / 1000));
+      return new Response("Too Many Requests", {
+        status: 429,
+        headers: { "retry-after": String(retryAfterSec) },
+      });
     }
 
     return null;
@@ -1406,7 +2247,11 @@ export class FontObfuscator {
       if (ticket.expiry < now || ticket.used) this.fontTickets.delete(token);
     }
     for (const [k, gate] of this.fontGate) {
-      const stale = gate.resetAt + DEFAULT_FONT_GATE_BLOCK_MS < now && gate.blockedUntil < now;
+      // An entry is stale once the rate window has expired AND any active block has
+      // also expired.  The extra DEFAULT_FONT_GATE_BLOCK_MS that was previously
+      // added to resetAt was redundant: gate.blockedUntil < now already covers the
+      // block-has-expired check and kept blocked entries from being deleted.
+      const stale = gate.resetAt < now && gate.blockedUntil < now;
       if (stale) this.fontGate.delete(k);
     }
   }
@@ -1480,13 +2325,87 @@ export class FontObfuscator {
     if (usable.length === 0) {
       throw new Error("no usable glyphs in source font for alphabet");
     }
-    if (usable.length > MAX_MAPPABLE_CHARS) {
-      usable.length = MAX_MAPPABLE_CHARS;
+
+    const puaPool = buildPuaPool(seed);
+
+    // [Security] Last-resort guard: even after the constructor check, if the
+    // candidate alphabet (which includes dynamic HTML chars) exceeds the pool,
+    // we must fail rather than silently passing characters through as plaintext.
+    if (usable.length > puaPool.length) {
+      const dropped = usable.length - puaPool.length;
+      const examples = usable.slice(puaPool.length, puaPool.length + 8).join(" ");
+      throw new Error(
+        `[FontObfuscator] ${usable.length} characters are mappable in the source font ` +
+        `but the PUA pool only has ${puaPool.length} slots. ` +
+        `The last ${dropped} characters (e.g. "${examples}") would appear as plaintext. ` +
+        `Reduce your alphabet or lower variantCount.`,
+      );
     }
 
-    const puaPool: number[] = [];
-    for (let i = 0; i < MAX_MAPPABLE_CHARS; i++) puaPool.push(PUA_START + i);
-    shuffle(puaPool, mulberry32(seed));
+    let mapping: Record<string, number>;
+    let variants: Record<string, number[]>;
+
+    if (this.budgetPolicy === "legacy") {
+      // Original two-pass allocation — preserved verbatim for backward compatibility.
+      mapping = {};
+      variants = {};
+      let puaIdx = 0;
+
+      // First pass: assign one primary codepoint to every usable character.
+      for (const ch of usable) {
+        const pua = puaPool[puaIdx++];
+        mapping[ch] = pua;
+        variants[ch] = [pua];
+      }
+
+      // Second pass: allocate additional variants for all characters.
+      if (this.variantCount > 1 || this.digitVariantCount > 1) {
+        let shortfallCount = 0;
+        for (const ch of usable) {
+          const target = DIGIT_VARIANT_TARGETS.has(ch)
+            ? Math.max(this.variantCount, this.digitVariantCount)
+            : this.variantCount;
+          const bucket = variants[ch];
+          while (bucket.length < target && puaIdx < puaPool.length) {
+            bucket.push(puaPool[puaIdx++]);
+          }
+          if (bucket.length < target) shortfallCount++;
+        }
+        if (shortfallCount > 0) {
+          let slotsNeeded = 0;
+          for (const ch of usable) {
+            slotsNeeded += DIGIT_VARIANT_TARGETS.has(ch)
+              ? Math.max(this.variantCount, this.digitVariantCount)
+              : this.variantCount;
+          }
+          console.warn(
+            `[FontObfuscator] PUA variant budget exhausted: ${shortfallCount} of ${usable.length} characters ` +
+            `received fewer than their requested variants ` +
+            `(need ${slotsNeeded} slots total, PUA pool has ${MAX_MAPPABLE_CHARS}). ` +
+            `These characters are still obfuscated but their frequency pattern is less obscured. ` +
+            `Consider lowering variantCount (currently ${this.variantCount}) or reducing the alphabet size.`,
+          );
+        }
+      }
+    } else {
+      // "adaptive" or "strict": use three-phase adaptiveAllocate.
+      // "frequency-weighted" requires HTML context unavailable here; fall back to "uniform".
+      const allocatorFn: AllocatorStrategy =
+        this.variantAllocator === "class-weighted"
+          ? { distribute: classWeightedDistribute }
+          : { distribute: uniformDistribute };
+
+      const result = adaptiveAllocate(usable, puaPool, {
+        budgetPolicy: this.budgetPolicy,
+        variantCount: this.variantCount,
+        digitVariantCount: this.digitVariantCount,
+        minPrimaryGuarantee: this.minPrimaryGuarantee,
+        onBudgetDegrade: this.onBudgetDegrade,
+        allocator: allocatorFn,
+      });
+      mapping = result.mapping;
+      variants = result.variants;
+    }
 
     const Glyph: any = (opentype as any).Glyph;
     const Path: any = (opentype as any).Path;
@@ -1501,38 +2420,18 @@ export class FontObfuscator {
     });
 
     const newGlyphs: any[] = [notdef];
-    const mapping: Record<string, number> = {};
-    const variants: Record<string, number[]> = {};
-
-    // First pass: assign one primary codepoint to every usable character.
-    let puaIdx = 0;
-    for (let i = 0; i < usable.length; i++) {
-      const ch = usable[i];
-      const pua = puaPool[puaIdx++];
-      mapping[ch] = pua;
-      variants[ch] = [pua];
-    }
-
-    // Second pass: allocate additional variants for numeric glyphs.
-    if (this.digitVariantCount > 1) {
-      for (const ch of usable) {
-        if (!DIGIT_VARIANT_TARGETS.has(ch)) continue;
-        const bucket = variants[ch];
-        while (bucket.length < this.digitVariantCount && puaIdx < puaPool.length) {
-          bucket.push(puaPool[puaIdx++]);
-        }
-      }
-    }
-
     for (let i = 0; i < usable.length; i++) {
       const ch = usable[i];
       const srcGlyph = srcFont.charToGlyph(ch);
       for (let v = 0; v < variants[ch].length; v++) {
         const pua = variants[ch][v];
         newGlyphs.push(new Glyph({
-          // Opaque deterministic name: never reveals the original character.
-          // Prevents fonttools / name-table attacks that map PUA → glyph name → original char.
-          name: `g${toHex32(Math.imul((seed ^ i ^ v) + 0x9e3779b9, pua + 0x6c62272e) >>> 0)}`,
+          // Use the PUA codepoint as the glyph name suffix.  Since each PUA slot
+          // is assigned to exactly one glyph, `toHex32(pua)` is guaranteed unique.
+          // A 32-bit hash of (seed, i, v, pua) was used before but could collide
+          // with ~0.5% probability across a full 6 400-glyph font, producing an
+          // invalid font with duplicate glyph names.
+          name: `g${toHex32(pua)}`,
           unicode: pua,
           advanceWidth: srcGlyph.advanceWidth,
           path: srcGlyph.path,
@@ -1548,13 +2447,19 @@ export class FontObfuscator {
       descender: srcFont.descender,
       glyphs: newGlyphs,
     });
+    preserveSourceNameTable(srcFont, newFont);
 
     const ab: ArrayBuffer = newFont.toArrayBuffer();
     return { fontBytes: new Uint8Array(ab), mapping, variants };
   }
 
   private scrambleFont(seed: number, candidateAlphabet: string[]): Promise<ScrambleResult> {
-    const cacheKey = `${seed}:${candidateAlphabet.length}:${hashCharList(candidateAlphabet)}:${this.digitVariantCount}`;
+    const cacheKey = JSON.stringify([
+      seed,
+      this.variantCount,
+      this.digitVariantCount,
+      candidateAlphabet,
+    ]);
     const cached = this.scrambleCache.get(cacheKey);
     if (cached) return cached;
 

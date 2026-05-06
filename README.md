@@ -97,11 +97,16 @@ Current implementation hardening:
 | `fontRoutePrefix` | `/_obf/font` | Path prefix for the one-time font token endpoint |
 | `fontUrlTtlMs` | `30_000` | Token TTL in ms; increase if slow networks cause expiry |
 | `fontDisplay` | `"block"` | CSS `font-display` strategy in the injected `@font-face` |
-| `digitVariantCount` | `4` | Extra PUA variants per digit (0–9) — harder to infer from a sample |
+| `variantCount` | `1` | PUA variants per character — makes frequency analysis impossible (see [PUA budget](#pua-budget)) |
+| `digitVariantCount` | `4` | Digits receive `max(variantCount, digitVariantCount)` variants for extra counter protection |
 | `mappingRotationIntervalMs` | `120_000` | How often the PUA shuffle mapping rotates (ms) |
 | `alphabet` | ASCII + hiragana + katakana + full-width | Characters to include in the scrambled font |
 | `trustedProxies` | `undefined` | IP list of trusted reverse proxies for XFF walking |
 | `devMode` | `false` | Show floating panel listing unmapped characters |
+| `budgetPolicy` | `"legacy"` | PUA budget overflow policy: `"legacy"` (warn), `"adaptive"` (graceful degradation + hook), `"strict"` (throw) |
+| `variantAllocator` | `"uniform"` | Variant slot distribution strategy when `budgetPolicy` is `"adaptive"`: `"uniform"` or `"class-weighted"` |
+| `minPrimaryGuarantee` | `1` | Minimum PUA slots per character guaranteed in `"adaptive"` mode |
+| `onBudgetDegrade` | `undefined` | Called when variant budget runs short in `"adaptive"` mode — use to emit metrics |
 
 ### `await obfuscator.obfuscateHtml(html, { selectors })`
 
@@ -253,6 +258,51 @@ if (fontRes) return fontRes;
 - Determined reverse engineering is still possible
 - OCR-based extraction is out of scope
 - Must be combined with transport/API hardening and abuse detection
+
+### PUA budget
+
+The BMP Private Use Area holds **6,400 codepoints** (U+E000–U+F8FF).
+Total PUA slots used = `uniqueChars × variantCount` (digits use `max(variantCount, digitVariantCount)`).
+
+| Scenario | Unique chars | `variantCount` | Slots used |
+|---|---|---|---|
+| Default alphabet, default options | ~333 | 1 (digits: 4) | ~393 |
+| Default alphabet, `variantCount: 4` | ~333 | 4 | ~1,332 |
+| + 500 kanji, `variantCount: 4` | ~833 | 4 | ~3,332 |
+| All Joyo kanji, `variantCount: 4` | ~2,469 | 4 | ~9,876 ← **exceeds 6,400** |
+
+For kanji-heavy content with high variant counts, use `variantCount: 2` or increase the rotation frequency instead of relying on static variants alone.
+
+#### Budget overflow policies
+
+Control what happens when the slot budget runs short via `budgetPolicy`:
+
+```ts
+// "legacy" (default): console.warn on shortfall, existing behaviour unchanged
+new FontObfuscator({ fontUrl, budgetPolicy: "legacy" });
+
+// "adaptive": primary slot always guaranteed; surplus distributed by variantAllocator
+// onBudgetDegrade fires when variant count is reduced — no plaintext leakage
+new FontObfuscator({
+  fontUrl,
+  budgetPolicy: "adaptive",
+  variantAllocator: "class-weighted", // digits/currency get more variants
+  onBudgetDegrade: (e) => console.log(
+    `variant shortfall: ${e.variantShortfall}/${e.totalChars} chars`,
+  ),
+});
+
+// "strict": throws at construction time if any variant would be under-allocated
+new FontObfuscator({ fontUrl, budgetPolicy: "strict", variantCount: 2 });
+```
+
+**`variantAllocator` strategies** (effective only with `budgetPolicy: "adaptive"`):
+
+| Strategy | Description |
+|---|---|
+| `"uniform"` | Every character gets `variantCount` extra slots (default — same as legacy) |
+| `"class-weighted"` | Digits, currency, and Latin characters receive proportionally more slots via a static weight table |
+| `"frequency-weighted"` | Reserved for a future release; currently falls back to `"uniform"` |
 
 ## Testing
 

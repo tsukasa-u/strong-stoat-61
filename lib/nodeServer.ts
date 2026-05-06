@@ -15,11 +15,18 @@ export function serveFetch(handler: (req: Request) => Promise<Response> | Respon
 
       const response = await handler(request);
       res.statusCode = response.status;
+      const setCookies = typeof response.headers.getSetCookie === "function"
+        ? response.headers.getSetCookie()
+        : [];
       response.headers.forEach((value, key) => {
+        if (key === "set-cookie") return;
         res.setHeader(key, value);
       });
+      if (setCookies.length > 0) {
+        res.setHeader("set-cookie", setCookies);
+      }
 
-      if (response.body) {
+      if (req.method !== "HEAD" && response.body) {
         for await (const chunk of response.body) {
           res.write(chunk);
         }

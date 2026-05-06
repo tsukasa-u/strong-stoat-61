@@ -39,10 +39,22 @@ export async function obfuscateHtmlResponse(
     return response;
   }
 
+  if (req?.method === "HEAD") {
+    const headers = new Headers(response.headers);
+    headers.delete("content-length");
+    headers.set("cache-control", "no-store");
+    return new Response(null, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
+
   const source = await response.text();
   const html = await obfuscator.obfuscateHtml(source, {
     selectors: options.selectors,
     fontFamilyName: options.fontFamilyName,
+    devMode: options.devMode,
     pageKey: req ? new URL(req.url).pathname : "/",
     // Use the obfuscator's own getClientFingerprint so trustedProxies is respected.
     clientFingerprint: req ? obfuscator.getClientFingerprint(req) : undefined,
