@@ -27,6 +27,10 @@ const obfuscator = new FontObfuscator({
   // Workers are stateless across requests; use a shorter rotation interval
   // to limit the exposure window of any captured font or _pre array.
   mappingRotationIntervalMs: 60_000,
+  budgetPolicy: "adaptive",
+  variantAllocator: "frequency-weighted",
+  onBudgetDegrade: (e) =>
+    console.warn(`[font-obfuscator] variant shortfall: ${e.variantShortfall}/${e.totalChars} chars`),
 });
 
 function baseHandler(_req: Request): Response {

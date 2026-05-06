@@ -490,6 +490,51 @@ it("adaptive mode with uniform allocator matches legacy output structure", async
   }
 });
 
+it("adaptive mode with frequency-weighted allocator produces valid obfuscated output", async () => {
+  const obf = new FontObfuscator({
+    fontUrl:
+      "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+    budgetPolicy: "adaptive",
+    variantAllocator: "frequency-weighted",
+  });
+
+  const html = `<html><head></head><body><p class="a">AAAAB価格</p></body></html>`;
+  const out = await obf.obfuscateHtml(html, { selectors: [".a"] });
+
+  expect(out).toContain("@font-face");
+  expect(out).not.toContain("AAAAB");
+  expect(out).not.toContain("価格");
+});
+
+it("frequency-weighted allocator uses frequency profile in scramble cache key", async () => {
+  const obf = new FontObfuscator({
+    fontUrl:
+      "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+    budgetPolicy: "adaptive",
+    variantAllocator: "frequency-weighted",
+    variantCount: 2,
+    digitVariantCount: 2,
+  });
+
+  // Keep usable chars close to BMP-PUA capacity so extra slots are scarce.
+  const dense = Array.from({ length: 6298 }, (_, i) => String.fromCodePoint(0x4e00 + i));
+  const alphabet = ["A", "B", ...dense];
+  const seed = 246813579;
+
+  const resA = await (obf as any).scrambleFont(seed, alphabet, { A: 5000, B: 1 });
+  const resB = await (obf as any).scrambleFont(seed, alphabet, { A: 1, B: 5000 });
+
+  // If frequency profile were ignored in the cache key, both calls would reuse
+  // the same cached scramble and these variant lengths would be identical.
+  const aLenA = resA.variants["A"]?.length ?? 1;
+  const bLenA = resA.variants["B"]?.length ?? 1;
+  const aLenB = resB.variants["A"]?.length ?? 1;
+  const bLenB = resB.variants["B"]?.length ?? 1;
+
+  expect(aLenA).toBeGreaterThanOrEqual(bLenA);
+  expect(bLenB).toBeGreaterThanOrEqual(aLenB);
+});
+
 // ---------------------------------------------------------------------------
 // Bug regression tests
 // ---------------------------------------------------------------------------

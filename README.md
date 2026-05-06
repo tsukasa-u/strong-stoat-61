@@ -55,7 +55,7 @@ It remaps glyphs to Private Use Area (PUA) code points so that:
 
 ### 5) Dynamic values (counters, prices)
 
-Use [`preEncodeShuffled`](#preencodeShuffled) to pre-encode arrays of values server-side.
+Use `preEncodeShuffled` to pre-encode arrays of values server-side.
 The client receives only an array of PUA strings and an index — never the mapping.
 
 ## How To Preserve Copy-Resistance
@@ -82,31 +82,32 @@ Current implementation hardening:
 
 ### Which pattern to use?
 
-| Scenario | Pattern |
-|---|---|
-| Simple / low-traffic / fully dynamic HTML | `obfuscateHtml()` |
-| Static HTML template (Express, Fastify, Hono) | `precomputeHtml()` + `getRotatingPrecomputedPage()` + `servePrecomputed()` |
-| Dynamic SSR body (Nuxt, SolidStart Nitro) | `precomputeMapping()` + `getRotatingMapping()` + `serveWithMapping()` |
-| Next.js / Remix / Astro / SvelteKit / Hono / Bun / Cloudflare Workers | Adapter helpers — see [Adapter Behavior](#adapter-behavior-by-framework) |
+| Scenario | Pattern  |
+| --- | ---  |
+| Simple / low-traffic / fully dynamic HTML | `obfuscateHtml()`  |
+| Static HTML template (Express, Fastify, Hono) | `precomputeHtml()` + `getRotatingPrecomputedPage()` + `servePrecomputed()`  |
+| Dynamic SSR body (Nuxt, SolidStart Nitro) | `precomputeMapping()` + `getRotatingMapping()` + `serveWithMapping()`  |
+| Next.js / Remix / Astro / SvelteKit / Hono / Bun / Cloudflare Workers | Adapter helpers — see [Adapter Behavior](#adapter-behavior-by-framework)  |
 
 ### `new FontObfuscator(options)`
 
-| Option | Default | Description |
-|---|---|---|
-| `fontUrl` | (required) | `http`/`https` URL of source TTF or WOFF2 font |
-| `fontRoutePrefix` | `/_obf/font` | Path prefix for the one-time font token endpoint |
-| `fontUrlTtlMs` | `30_000` | Token TTL in ms; increase if slow networks cause expiry |
-| `fontDisplay` | `"block"` | CSS `font-display` strategy in the injected `@font-face` |
-| `variantCount` | `1` | PUA variants per character — makes frequency analysis impossible (see [PUA budget](#pua-budget)) |
-| `digitVariantCount` | `4` | Digits receive `max(variantCount, digitVariantCount)` variants for extra counter protection |
-| `mappingRotationIntervalMs` | `120_000` | How often the PUA shuffle mapping rotates (ms) |
-| `alphabet` | ASCII + hiragana + katakana + full-width | Characters to include in the scrambled font |
-| `trustedProxies` | `undefined` | IP list of trusted reverse proxies for XFF walking |
-| `devMode` | `false` | Show floating panel listing unmapped characters |
-| `budgetPolicy` | `"legacy"` | PUA budget overflow policy: `"legacy"` (warn), `"adaptive"` (graceful degradation + hook), `"strict"` (throw) |
-| `variantAllocator` | `"uniform"` | Variant slot distribution strategy when `budgetPolicy` is `"adaptive"`: `"uniform"` or `"class-weighted"` |
-| `minPrimaryGuarantee` | `1` | Minimum PUA slots per character guaranteed in `"adaptive"` mode |
-| `onBudgetDegrade` | `undefined` | Called when variant budget runs short in `"adaptive"` mode — use to emit metrics |
+| Option | Default | Description  |
+| --- | --- | ---  |
+| `fontUrl` | (required) | `http`/`https` URL of source TTF or WOFF2 font  |
+| `fontRoutePrefix` | `/_obf/font` | Path prefix for the one-time font token endpoint  |
+| `sessionTtlMs` | `3_600_000` | How long (ms) font tickets remain in the server's in-memory registry; controls ticket-map garbage collection  |
+| `fontUrlTtlMs` | `30_000` | Token TTL in ms; increase if slow networks cause expiry  |
+| `fontDisplay` | `"block"` | CSS `font-display` strategy in the injected `@font-face`  |
+| `variantCount` | `1` | PUA variants per character — makes frequency analysis impossible (see [PUA budget](#pua-budget))  |
+| `digitVariantCount` | `4` | Digits receive `max(variantCount, digitVariantCount)` variants for extra counter protection  |
+| `mappingRotationIntervalMs` | `120_000` | How often the PUA shuffle mapping rotates (ms)  |
+| `alphabet` | ASCII + hiragana + katakana + full-width | Characters to include in the scrambled font  |
+| `trustedProxies` | `undefined` | IP list of trusted reverse proxies for XFF walking  |
+| `devMode` | `false` | Show floating panel listing unmapped characters  |
+| `budgetPolicy` | `"legacy"` | PUA budget overflow policy: `"legacy"` (warn), `"adaptive"` (graceful degradation + hook), `"strict"` (throw)  |
+| `variantAllocator` | `"uniform"` | Variant slot distribution strategy when `budgetPolicy` is `"adaptive"`: `"uniform"`, `"class-weighted"`, or `"frequency-weighted"`  |
+| `minPrimaryGuarantee` | `1` | Minimum PUA slots per character guaranteed in `"adaptive"` mode  |
+| `onBudgetDegrade` | `undefined` | Called when variant budget runs short in `"adaptive"` mode — use to emit metrics  |
 
 ### `await obfuscator.obfuscateHtml(html, { selectors })`
 
@@ -264,12 +265,12 @@ if (fontRes) return fontRes;
 The BMP Private Use Area holds **6,400 codepoints** (U+E000–U+F8FF).
 Total PUA slots used = `uniqueChars × variantCount` (digits use `max(variantCount, digitVariantCount)`).
 
-| Scenario | Unique chars | `variantCount` | Slots used |
-|---|---|---|---|
-| Default alphabet, default options | ~333 | 1 (digits: 4) | ~393 |
-| Default alphabet, `variantCount: 4` | ~333 | 4 | ~1,332 |
-| + 500 kanji, `variantCount: 4` | ~833 | 4 | ~3,332 |
-| All Joyo kanji, `variantCount: 4` | ~2,469 | 4 | ~9,876 ← **exceeds 6,400** |
+| Scenario | Unique chars | `variantCount` | Slots used  |
+| --- | --- | --- | ---  |
+| Default alphabet, default options | ~333 | 1 (digits: 4) | ~393  |
+| Default alphabet, `variantCount: 4` | ~333 | 4 | ~1,332  |
+| + 500 kanji, `variantCount: 4` | ~833 | 4 | ~3,332  |
+| All Joyo kanji, `variantCount: 4` | ~2,469 | 4 | ~9,876 ← **exceeds 6,400**  |
 
 For kanji-heavy content with high variant counts, use `variantCount: 2` or increase the rotation frequency instead of relying on static variants alone.
 
@@ -298,11 +299,11 @@ new FontObfuscator({ fontUrl, budgetPolicy: "strict", variantCount: 2 });
 
 **`variantAllocator` strategies** (effective only with `budgetPolicy: "adaptive"`):
 
-| Strategy | Description |
-|---|---|
-| `"uniform"` | Every character gets `variantCount` extra slots (default — same as legacy) |
-| `"class-weighted"` | Digits, currency, and Latin characters receive proportionally more slots via a static weight table |
-| `"frequency-weighted"` | Reserved for a future release; currently falls back to `"uniform"` |
+| Strategy | Description  |
+| --- | ---  |
+| `"uniform"` | Every character gets `variantCount` extra slots (default — same as legacy)  |
+| `"class-weighted"` | Digits, currency, and Latin characters receive proportionally more slots via a static weight table  |
+| `"frequency-weighted"` | Weights slots by character frequency observed in selected visible text, prioritizing high-frequency characters  |
 
 ## Testing
 

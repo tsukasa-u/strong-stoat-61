@@ -17,6 +17,10 @@ const FONT_URL =
 const obfuscator = new FontObfuscator({
   fontUrl: FONT_URL,
   fontRoutePrefix: "/_obf/font",
+  budgetPolicy: "adaptive",
+  variantAllocator: "frequency-weighted",
+  onBudgetDegrade: (e) =>
+    console.warn(`[font-obfuscator] variant shortfall: ${e.variantShortfall}/${e.totalChars} chars`),
 });
 
 // ── base handler ───────────────────────────────────────────────────────────
