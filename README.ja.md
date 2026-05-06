@@ -54,7 +54,7 @@ Font Obfuscator は、HTMLレスポンスに難読化処理を注入するライ
 
 ### 5) 動的な値（カウンター・価格）
 
-[`preEncodeShuffled`](#preencodeShuffled) を使ってサーバーサイドで値の配列を事前エンコードします。
+`preEncodeShuffled` を使ってサーバーサイドで値の配列を事前エンコードします。
 クライアントには PUA 文字列の配列とインデックスのみが届き、マッピングは渡されません。
 
 ## コピー耐性を維持する運用
@@ -96,31 +96,32 @@ Font Obfuscator は、HTMLレスポンスに難読化処理を注入するライ
 
 ### どのパターンを使うか
 
-| シナリオ | パターン |
-|---|---|
-| シンプル・低トラフィック・完全動的 HTML | `obfuscateHtml()` |
-| 静的 HTML テンプレート (Express, Fastify, Hono) | `precomputeHtml()` + `getRotatingPrecomputedPage()` + `servePrecomputed()` |
-| 動的 SSR ボディ (Nuxt, SolidStart Nitro) | `precomputeMapping()` + `getRotatingMapping()` + `serveWithMapping()` |
-| Next.js / Remix / Astro / SvelteKit / Hono / Bun / Cloudflare Workers | アダプタヘルパーを使用（[アダプタは何をしているか](#アダプタは何をしているか)を参照）|
+| シナリオ | パターン  |
+| --- | ---  |
+| シンプル・低トラフィック・完全動的 HTML | `obfuscateHtml()`  |
+| 静的 HTML テンプレート (Express, Fastify, Hono) | `precomputeHtml()` + `getRotatingPrecomputedPage()` + `servePrecomputed()`  |
+| 動的 SSR ボディ (Nuxt, SolidStart Nitro) | `precomputeMapping()` + `getRotatingMapping()` + `serveWithMapping()`  |
+| Next.js / Remix / Astro / SvelteKit / Hono / Bun / Cloudflare Workers | アダプタヘルパーを使用（[アダプタは何をしているか](#アダプタは何をしているか)を参照） |
 
 ### `new FontObfuscator(options)`
 
-| オプション | 既定値 | 説明 |
-|---|---|---|
-| `fontUrl` | (必須) | 元フォント（TTF/WOFF2）の `http`/`https` URL |
-| `fontRoutePrefix` | `/_obf/font` | フォントトークンエンドポイントのパスプレフィックス |
-| `fontUrlTtlMs` | `30_000` | トークン有効期限（ms）。低速回線では延長を検討 |
-| `fontDisplay` | `"block"` | `@font-face` の `font-display` 戦略 |
-| `variantCount` | `1` | **全文字**への PUA バリアント数。頻度分析を無効化（[PUA バジェット](#pua-バジェット)参照）|
-| `digitVariantCount` | `4` | 数字は `max(variantCount, digitVariantCount)` バリアントを割り当て |
-| `mappingRotationIntervalMs` | `120_000` | PUA シャッフルマッピングのローテーション間隔（ms）|
-| `alphabet` | ASCII + ひらがな + カタカナ + 全角 | スクランブル対象文字セット |
-| `trustedProxies` | `undefined` | XFF 解析で信頼するリバースプロキシ IP リスト |
-| `devMode` | `false` | マッピングされていない文字を示すパネルを表示 |
-| `budgetPolicy` | `"legacy"` | PUA 予算超過時のポリシー: `"legacy"`（警告）/ `"adaptive"`（優雅な劇化＋フック）/ `"strict"`（throw）|
-| `variantAllocator` | `"uniform"` | `"adaptive"` 時のバリアント配分戦略: `"uniform"`（均一）または `"class-weighted"`（文字種別重み）|
-| `minPrimaryGuarantee` | `1` | `"adaptive"` 時に各文字へ保証する最小 PUA スロット数 |
-| `onBudgetDegrade` | `undefined` | `"adaptive"` 時にバリアント予算が不足した際に呼び出されるコールバック（メトリクス収集用途等）|
+| オプション | 既定値 | 説明  |
+| --- | --- | ---  |
+| `fontUrl` | (必須) | 元フォント（TTF/WOFF2）の `http`/`https` URL  |
+| `fontRoutePrefix` | `/_obf/font` | フォントトークンエンドポイントのパスプレフィックス  |
+| `sessionTtlMs` | `3_600_000` | フォントチケットのメモリ保持時間（ms）。チケットマップのガベージコレクション間隔を制御  |
+| `fontUrlTtlMs` | `30_000` | トークン有効期限（ms）。低速回線では延長を検討  |
+| `fontDisplay` | `"block"` | `@font-face` の `font-display` 戦略  |
+| `variantCount` | `1` | **全文字**への PUA バリアント数。頻度分析を無効化（[PUA バジェット](#pua-バジェット)参照） |
+| `digitVariantCount` | `4` | 数字は `max(variantCount, digitVariantCount)` バリアントを割り当て  |
+| `mappingRotationIntervalMs` | `120_000` | PUA シャッフルマッピングのローテーション間隔（ms） |
+| `alphabet` | ASCII + ひらがな + カタカナ + 全角 | スクランブル対象文字セット  |
+| `trustedProxies` | `undefined` | XFF 解析で信頼するリバースプロキシ IP リスト  |
+| `devMode` | `false` | マッピングされていない文字を示すパネルを表示  |
+| `budgetPolicy` | `"legacy"` | PUA 予算超過時のポリシー: `"legacy"`（警告）/ `"adaptive"`（優雅な劣化＋フック）/ `"strict"`（throw） |
+| `variantAllocator` | `"uniform"` | `"adaptive"` 時のバリアント配分戦略: `"uniform"`（均一）/ `"class-weighted"`（文字種別重み）/ `"frequency-weighted"`（出現頻度重み） |
+| `minPrimaryGuarantee` | `1` | `"adaptive"` 時に各文字へ保証する最小 PUA スロット数  |
+| `onBudgetDegrade` | `undefined` | `"adaptive"` 時にバリアント予算が不足した際に呼び出されるコールバック（メトリクス収集用途等） |
 
 ### `await obfuscator.obfuscateHtml(html, { selectors })`
 
@@ -281,12 +282,12 @@ if (fontRes) return fontRes;
 BMP 私用領域は **6,400 コードポイント**（U+E000–U+F8FF）を持ちます。  
 消費スロット数 = `ユニーク文字数 × variantCount`（数字は `max(variantCount, digitVariantCount)`）。  
 
-| シナリオ | 文字数 | `variantCount` | 消費スロット |
-|---|---|---|---|
-| デフォルト、既定値 | 紏333 | 1（数字の㑳4） | 紏393 |
-| デフォルト、`variantCount: 4` | 紏333 | 4 | 紏1,332 |
-| + 漢字500字、`variantCount: 4` | 紏833 | 4 | 紏3,332 |
-| 常用漢字全部、`variantCount: 4` | 紏2,469 | 4 | 紏9,876 ← **超過** |
+| シナリオ | 文字数 | `variantCount` | 消費スロット  |
+| --- | --- | --- | ---  |
+| デフォルト、既定値 | 約333 | 1（数字は4） | 約393  |
+| デフォルト、`variantCount: 4` | 約333 | 4 | 約1,332  |
+| + 漢字500字、`variantCount: 4` | 約833 | 4 | 約3,332  |
+| 常用漢字全部、`variantCount: 4` | 約2,469 | 4 | 約9,876 ← **超過**  |
 
 漢字が多いページで高バリアント数を使う場合は `variantCount: 2` か、ローテーション間隔を短くする方法を推奨します。
 
@@ -298,7 +299,7 @@ BMP 私用領域は **6,400 コードポイント**（U+E000–U+F8FF）を持�
 // "legacy" （デフォルト）: 超過時に console.warn。既存の挙動を維持
 new FontObfuscator({ fontUrl, budgetPolicy: "legacy" });
 
-// "adaptive": 各文字のプライマリスロットを必ず保証。予算を超えたバリアント分は剤複。
+// "adaptive": 各文字のプライマリスロットを必ず保証。予算を超えたバリアント分は削減。
 // プレーンテキストの漏洩はなし
 new FontObfuscator({
   fontUrl,
@@ -315,11 +316,11 @@ new FontObfuscator({ fontUrl, budgetPolicy: "strict", variantCount: 2 });
 
 **`variantAllocator` 戦略**（`budgetPolicy: "adaptive"` 時のみ有効）：
 
-| 戦略 | 説明 |
-|---|---|
-| `"uniform"` | 全文字に均一に `variantCount` スロットを配分（デフォルト）|
-| `"class-weighted"` | 数字・通貨記号・ラテン文字に静的重みでより多く配分 |
-| `"frequency-weighted"` | 将来のリリースで対応予定。現在は `"uniform"` にフォールバック |
+| 戦略 | 説明  |
+| --- | ---  |
+| `"uniform"` | 全文字に均一に `variantCount` スロットを配分（デフォルト） |
+| `"class-weighted"` | 数字・通貨記号・ラテン文字に静的重みでより多く配分  |
+| `"frequency-weighted"` | 選択対象の可視テキストでの出現頻度に応じて配分し、高頻度文字へ優先的にスロットを割り当て  |
 
 ## テスト
 
