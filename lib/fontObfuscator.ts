@@ -31,8 +31,8 @@ export type BudgetPolicy = "strict" | "adaptive" | "legacy";
  *   framework.
  * - `"class-weighted"`: digits, currency symbols, and Latin characters receive
  *   proportionally more variant slots based on a static weight table.
- * - `"frequency-weighted"`: reserved for a future release; currently falls back
- *   to `"uniform"`.
+ * - `"frequency-weighted"`: allocates more variants to high-frequency
+ *   characters observed in selected visible text.
  *
  * @default "uniform"
  */
@@ -157,8 +157,8 @@ export interface FontObfuscatorOptions {
    *   additional slots — same as the legacy split but inside the adaptive framework.
    * - `"class-weighted"`: digits, currency symbols, and Latin characters receive
    *   proportionally more slots via a static weight table.
-   * - `"frequency-weighted"`: reserved for a future release; currently falls back to
-   *   `"uniform"`.
+   * - `"frequency-weighted"`: uses selected-text frequency counts so high-frequency
+   *   characters receive proportionally more variant slots.
    *
    * @default "uniform"
    */
@@ -239,6 +239,8 @@ export interface PrecomputedPage {
   mapping: Record<string, number>;
   /** char → list of usable PUA variants (first item is `mapping[char]`). */
   variants: Record<string, number[]>;
+  /** Character frequencies collected from selected visible text. */
+  candidateFrequencies: Record<string, number>;
   /** Normalised selectors that were obfuscated. */
   selectors: string[];
 }
@@ -274,6 +276,8 @@ export interface PrecomputedMapping {
   variants: Record<string, number[]>;
   /** The character set passed to the font scrambler. */
   candidateAlphabet: string[];
+  /** Character frequencies collected from selected visible text. */
+  candidateFrequencies: Record<string, number>;
 }
 
 interface FontTicket {
@@ -285,6 +289,7 @@ interface FontTicket {
   selectorKey: string;
   clientFingerprint?: string;
   candidateAlphabet?: string[];
+  candidateFrequencies?: Record<string, number>;
   /**
    * Cached scramble result created during obfuscateHtml so the font-serve path
    * can reuse the same computation instead of rebuilding from the seed.
@@ -303,6 +308,11 @@ interface ScrambleResult {
   fontBytes: Uint8Array;
   mapping: Record<string, number>;
   variants: Record<string, number[]>;
+}
+
+interface CandidateAlphabetData {
+  alphabet: string[];
+  freqs: Map<string, number>;
 }
 
 const DEFAULT_FONT_ROUTE_PREFIX = "/_obf/font";
@@ -350,7 +360,6 @@ function cloneNameValue(value: unknown): unknown {
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = v;
   return out;
 }
-
 function preserveSourceNameTable(srcFont: any, newFont: any): void {
   const srcNames = srcFont?.names;
   if (!srcNames || typeof srcNames !== "object") return;
@@ -499,16 +508,22 @@ function obfuscateUserVisibleAttributes(
   return out;
 }
 
-function collectUniqueVisibleChars(text: string, seen: Set<string>, out: string[]): void {
+function collectVisibleCharsAndFreqs(
+  text: string,
+  seen: Set<string>,
+  out: string[],
+  freqs: Map<string, number>,
+): void {
   for (const { ch } of decodeHtmlTextUnits(text, true)) {
     if (/\s/u.test(ch)) continue;
+    freqs.set(ch, (freqs.get(ch) ?? 0) + 1);
     if (seen.has(ch)) continue;
     seen.add(ch);
     out.push(ch);
   }
 }
 
-function extractTextCharsFromHtml(html: string): string[] {
+function extractTextDataFromHtml(html: string): CandidateAlphabetData {
   // Also extract characters from user-visible attribute values (placeholder, aria-label, alt, title).
   // These are rendered to the user but live inside tags, so the strip-tags pass below would miss them.
   // Characters appearing only in these attributes must still be included in the font alphabet.
@@ -526,16 +541,20 @@ function extractTextCharsFromHtml(html: string): string[] {
   // would not be added to the candidate alphabet and would leak as plaintext.
   const chars: string[] = [];
   const seen = new Set<string>();
-  collectUniqueVisibleChars(stripped, seen, chars);
-  return chars;
+  const freqs = new Map<string, number>();
+  collectVisibleCharsAndFreqs(stripped, seen, chars, freqs);
+  return { alphabet: chars, freqs };
 }
 
-function extractTextCharsFromSelectorScopeHtml(html: string, selectors: string[]): string[] {
+function extractTextDataFromSelectorScopeHtml(html: string, selectors: string[]): CandidateAlphabetData {
   const sets = buildSelectorSets(selectors);
-  if (sets.ids.size === 0 && sets.classes.size === 0) return [];
+  if (sets.ids.size === 0 && sets.classes.size === 0) {
+    return { alphabet: [], freqs: new Map<string, number>() };
+  }
 
   const chars: string[] = [];
   const seen = new Set<string>();
+  const freqs = new Map<string, number>();
   const stack: SelectorFrame[] = [];
   let targetDepth = 0;
   let noParseDepth = 0;
@@ -546,7 +565,7 @@ function extractTextCharsFromSelectorScopeHtml(html: string, selectors: string[]
       const next = html.indexOf("<", i);
       const end = next === -1 ? html.length : next;
       if (targetDepth > 0 && noParseDepth === 0) {
-        collectUniqueVisibleChars(html.slice(i, end), seen, chars);
+        collectVisibleCharsAndFreqs(html.slice(i, end), seen, chars, freqs);
       }
       i = end;
       continue;
@@ -599,7 +618,7 @@ function extractTextCharsFromSelectorScopeHtml(html: string, selectors: string[]
     const inTargetScope = targetDepth > 0 || matchesSelectorSets(rawTag, sets);
 
     if (inTargetScope && noParseDepth === 0) {
-      collectUniqueVisibleChars(extractUserVisibleAttributeText(rawTag), seen, chars);
+      collectVisibleCharsAndFreqs(extractUserVisibleAttributeText(rawTag), seen, chars, freqs);
     }
 
     if (tagName && !selfClose) {
@@ -611,7 +630,7 @@ function extractTextCharsFromSelectorScopeHtml(html: string, selectors: string[]
     i = tagEnd + 1;
   }
 
-  return chars;
+  return { alphabet: chars, freqs };
 }
 
 function hashCharList(chars: string[]): number {
@@ -625,6 +644,39 @@ function hashCharList(chars: string[]): number {
     h ^= (cp >>> 16) & 0xff;
     h = Math.imul(h, 16777619);
     h ^= (cp >>> 24) & 0xff;
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function toFrequencyRecord(freqs: Map<string, number>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [ch, count] of freqs.entries()) out[ch] = count;
+  return out;
+}
+
+function toFrequencyMap(freqs: Record<string, number> | undefined): Map<string, number> | undefined {
+  if (!freqs) return undefined;
+  return new Map<string, number>(Object.entries(freqs));
+}
+
+function hashFrequencyRecord(chars: string[], freqs: Record<string, number> | undefined): number {
+  if (!freqs) return 0;
+  let h = 2166136261;
+  for (const ch of chars) {
+    const cp = ch.codePointAt(0)!;
+    const count = freqs[ch] ?? 1;
+    h ^= cp & 0xff;
+    h = Math.imul(h, 16777619);
+    h ^= (cp >>> 8) & 0xff;
+    h = Math.imul(h, 16777619);
+    h ^= (count >>> 0) & 0xff;
+    h = Math.imul(h, 16777619);
+    h ^= (count >>> 8) & 0xff;
+    h = Math.imul(h, 16777619);
+    h ^= (count >>> 16) & 0xff;
+    h = Math.imul(h, 16777619);
+    h ^= (count >>> 24) & 0xff;
     h = Math.imul(h, 16777619);
   }
   return h >>> 0;
@@ -681,7 +733,11 @@ interface AllocatorStrategy {
   distribute(
     chars: string[],
     remaining: number,
-    opts: { variantCount: number; digitVariantCount: number },
+    opts: {
+      variantCount: number;
+      digitVariantCount: number;
+      freqs?: Map<string, number>;
+    },
   ): Record<string, number>;
 }
 
@@ -693,7 +749,11 @@ interface AllocatorStrategy {
 function uniformDistribute(
   chars: string[],
   _remaining: number,
-  opts: { variantCount: number; digitVariantCount: number },
+  opts: {
+    variantCount: number;
+    digitVariantCount: number;
+    freqs?: Map<string, number>;
+  },
 ): Record<string, number> {
   const extra: Record<string, number> = {};
   for (const ch of chars) {
@@ -702,6 +762,69 @@ function uniformDistribute(
       : opts.variantCount;
     extra[ch] = Math.max(0, target - 1);
   }
+  return extra;
+}
+
+/**
+ * Frequency-weighted allocator: high-frequency characters receive more
+ * variant slots. Missing frequencies are treated as weight 1.
+ */
+function frequencyWeightedDistribute(
+  chars: string[],
+  remaining: number,
+  opts: {
+    variantCount: number;
+    digitVariantCount: number;
+    freqs?: Map<string, number>;
+  },
+): Record<string, number> {
+  const maxPerChar = Math.max(opts.variantCount, opts.digitVariantCount) - 1;
+  const extra: Record<string, number> = {};
+  for (const ch of chars) extra[ch] = 0;
+
+  if (maxPerChar <= 0 || chars.length === 0 || remaining <= 0) return extra;
+
+  const weights = chars.map((ch) => Math.max(1, opts.freqs?.get(ch) ?? 1));
+  const totalWeight = weights.reduce((s, w) => s + w, 0);
+  if (totalWeight <= 0) return extra;
+
+  const priority: Array<{ ch: string; frac: number; w: number; cp: number }> = [];
+  let used = 0;
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i];
+    const ideal = (weights[i] / totalWeight) * remaining;
+    const clamped = Math.min(maxPerChar, ideal);
+    const base = Math.floor(clamped);
+    extra[ch] = base;
+    used += base;
+    priority.push({
+      ch,
+      frac: clamped - base,
+      w: weights[i],
+      cp: ch.codePointAt(0)!,
+    });
+  }
+
+  // Deterministic tie-breaker: higher fractional part -> higher weight -> lower codepoint.
+  priority.sort((a, b) => {
+    if (b.frac !== a.frac) return b.frac - a.frac;
+    if (b.w !== a.w) return b.w - a.w;
+    return a.cp - b.cp;
+  });
+
+  let leftover = remaining - used;
+  while (leftover > 0) {
+    let progressed = false;
+    for (const item of priority) {
+      if (leftover <= 0) break;
+      if (extra[item.ch] >= maxPerChar) continue;
+      extra[item.ch] += 1;
+      leftover -= 1;
+      progressed = true;
+    }
+    if (!progressed) break;
+  }
+
   return extra;
 }
 
@@ -743,7 +866,11 @@ function charClass(ch: string): keyof typeof CLASS_WEIGHTS {
 function classWeightedDistribute(
   chars: string[],
   remaining: number,
-  opts: { variantCount: number; digitVariantCount: number },
+  opts: {
+    variantCount: number;
+    digitVariantCount: number;
+    freqs?: Map<string, number>;
+  },
 ): Record<string, number> {
   const maxPerChar = Math.max(opts.variantCount, opts.digitVariantCount) - 1;
   if (maxPerChar <= 0 || chars.length === 0) {
@@ -790,6 +917,7 @@ interface AdaptiveAllocateOptions {
   variantCount: number;
   digitVariantCount: number;
   minPrimaryGuarantee: number;
+  freqs?: Map<string, number>;
   onBudgetDegrade?: (event: BudgetDegradeEvent) => void;
   allocator: AllocatorStrategy;
 }
@@ -1646,9 +1774,10 @@ export class FontObfuscator {
     this.clearGateFailure(gateKey);
 
     const alphabet = ticket.candidateAlphabet ?? this.alphabet;
+    const frequencies = ticket.candidateFrequencies;
     // Reuse a scramble that was pre-built during obfuscateHtml (if available)
     // to avoid building the same font twice for the same request cycle.
-    const { fontBytes } = await (ticket.cachedScramble ?? this.scrambleFont(ticket.seed, alphabet));
+    const { fontBytes } = await (ticket.cachedScramble ?? this.scrambleFont(ticket.seed, alphabet, frequencies));
     return new Response(fontBytes as unknown as BodyInit, {
       headers: {
         "content-type": "font/ttf",
@@ -1677,11 +1806,21 @@ export class FontObfuscator {
   async precomputeHtml(html: string, selectors: string[]): Promise<PrecomputedPage> {
     const normalizedSelectors = normalizeSelectors(selectors);
     if (normalizedSelectors.length === 0) {
-      return { rawHtml: html, puaHtml: html, seed: 0, candidateAlphabet: [], mapping: {}, variants: {}, selectors: [] };
+      return {
+        rawHtml: html,
+        puaHtml: html,
+        seed: 0,
+        candidateAlphabet: [],
+        candidateFrequencies: {},
+        mapping: {},
+        variants: {},
+        selectors: [],
+      };
     }
-    const candidateAlphabet = this.buildCandidateAlphabet(html, normalizedSelectors);
+    const { alphabet: candidateAlphabet, freqs } = this.buildCandidateAlphabetData(html, normalizedSelectors);
+    const candidateFrequencies = toFrequencyRecord(freqs);
     const seed = this.generateFreshSeed();
-    const { mapping, variants } = await this.scrambleFont(seed, candidateAlphabet);
+    const { mapping, variants } = await this.scrambleFont(seed, candidateAlphabet, candidateFrequencies);
     const puaHtml = obfuscateSelectorScopeHtml(
       html,
       normalizedSelectors,
@@ -1689,7 +1828,16 @@ export class FontObfuscator {
       variants,
       secureRandU32(),
     );
-    return { rawHtml: html, puaHtml, seed, candidateAlphabet, mapping, variants, selectors: normalizedSelectors };
+    return {
+      rawHtml: html,
+      puaHtml,
+      seed,
+      candidateAlphabet,
+      candidateFrequencies,
+      mapping,
+      variants,
+      selectors: normalizedSelectors,
+    };
   }
 
   /**
@@ -1701,12 +1849,14 @@ export class FontObfuscator {
    * default alphabet so that all common characters are guaranteed to be mapped.
    */
   async precomputeMapping(hintHtml?: string): Promise<PrecomputedMapping> {
-    const candidateAlphabet = hintHtml
-      ? this.buildCandidateAlphabet(hintHtml)
-      : [...this.alphabet];
+    const candidate = hintHtml
+      ? this.buildCandidateAlphabetData(hintHtml)
+      : { alphabet: [...this.alphabet], freqs: new Map<string, number>() };
+    const candidateAlphabet = candidate.alphabet;
+    const candidateFrequencies = toFrequencyRecord(candidate.freqs);
     const seed = this.generateFreshSeed();
-    const { mapping, variants } = await this.scrambleFont(seed, candidateAlphabet);
-    return { seed, mapping, variants, candidateAlphabet };
+    const { mapping, variants } = await this.scrambleFont(seed, candidateAlphabet, candidateFrequencies);
+    return { seed, mapping, variants, candidateAlphabet, candidateFrequencies };
   }
 
   /**
@@ -1738,7 +1888,7 @@ export class FontObfuscator {
     const normalizedSelectors = normalizeSelectors(selectors);
     if (normalizedSelectors.length === 0) return html;
 
-    const { seed, mapping, variants, candidateAlphabet } = precomputed;
+    const { seed, mapping, variants, candidateAlphabet, candidateFrequencies } = precomputed;
     const pageKey = normalizePageKey(options.pageKey);
     const selectorKey = normalizeSelectorKey(normalizedSelectors);
 
@@ -1747,6 +1897,7 @@ export class FontObfuscator {
       pageKey,
       selectorKey,
       candidateAlphabet,
+      candidateFrequencies,
       clientFingerprint: normalizeClientFingerprint(options.clientFingerprint),
     });
 
@@ -1787,9 +1938,14 @@ export class FontObfuscator {
    *   request arrives.
    */
   getRotatingMapping(hintHtml?: string): Promise<PrecomputedMapping> {
-    const internalKey = JSON.stringify(
-      hintHtml ? this.buildCandidateAlphabet(hintHtml) : this.alphabet,
-    );
+    const candidate = hintHtml
+      ? this.buildCandidateAlphabetData(hintHtml)
+      : { alphabet: [...this.alphabet], freqs: new Map<string, number>() };
+    const internalKey = JSON.stringify([
+      candidate.alphabet,
+      toFrequencyRecord(candidate.freqs),
+      this.variantAllocator,
+    ]);
     const now = Date.now();
     const entry = this.rotatingMappingMap.get(internalKey);
     if (!entry || now - entry.createdAt >= this.mappingRotationIntervalMs) {
@@ -1865,7 +2021,16 @@ export class FontObfuscator {
    * before the page object is cached (see `precomputeHtml` JSDoc).
    */
   async servePrecomputed(page: PrecomputedPage, options: ServePrecomputedOptions = {}): Promise<string> {
-    const { rawHtml, puaHtml, seed, candidateAlphabet, mapping, variants, selectors } = page;
+    const {
+      rawHtml,
+      puaHtml,
+      seed,
+      candidateAlphabet,
+      candidateFrequencies,
+      mapping,
+      variants,
+      selectors,
+    } = page;
     if (selectors.length === 0) return rawHtml ?? puaHtml;
 
     const pageKey = normalizePageKey(options.pageKey);
@@ -1876,6 +2041,7 @@ export class FontObfuscator {
       pageKey,
       selectorKey,
       candidateAlphabet,
+      candidateFrequencies,
       clientFingerprint: normalizeClientFingerprint(options.clientFingerprint),
     });
 
@@ -1922,19 +2088,21 @@ export class FontObfuscator {
     const selectorKey = normalizeSelectorKey(selectors);
     const selectorHash = fnv1a32(`${pageKey}|${selectorKey}`);
     const scopedSeed = (secureRandU32() ^ selectorHash) >>> 0;
-    const candidateAlphabet = this.buildCandidateAlphabet(html, selectors);
+    const { alphabet: candidateAlphabet, freqs } = this.buildCandidateAlphabetData(html, selectors);
+    const candidateFrequencies = toFrequencyRecord(freqs);
     const ticket = await this.createFontTicket({
       seed: scopedSeed,
       pageKey,
       selectorKey,
       candidateAlphabet,
+      candidateFrequencies,
       clientFingerprint: normalizeClientFingerprint(options.clientFingerprint),
     });
     // Build the scramble once here. Store the promise on the ticket so that
     // maybeHandleFontRequest can reuse it instead of rebuilding from the seed.
     // Use the uncached buildScramble path because obfuscateHtml uses a fresh
     // seed every call and we don't want to pollute the precomputed rotation cache.
-    const scramblePromise = this.buildScramble(ticket.seed, candidateAlphabet);
+    const scramblePromise = this.buildScramble(ticket.seed, candidateAlphabet, candidateFrequencies);
     const storedTicket = this.fontTickets.get(ticket.token);
     if (storedTicket) storedTicket.cachedScramble = scramblePromise;
     const { mapping, variants } = await scramblePromise;
@@ -1960,12 +2128,13 @@ export class FontObfuscator {
     return out;
   }
 
-  private buildCandidateAlphabet(html: string, selectors?: string[]): string[] {
+  private buildCandidateAlphabetData(html: string, selectors?: string[]): CandidateAlphabetData {
     const out: string[] = [];
     const seen = new Set<string>();
-    const dynamicChars = selectors && selectors.length > 0
-      ? extractTextCharsFromSelectorScopeHtml(html, selectors)
-      : extractTextCharsFromHtml(html);
+    const dynamicData = selectors && selectors.length > 0
+      ? extractTextDataFromSelectorScopeHtml(html, selectors)
+      : extractTextDataFromHtml(html);
+    const dynamicChars = dynamicData.alphabet;
 
     for (const ch of dynamicChars) {
       if (seen.has(ch)) continue;
@@ -1979,7 +2148,7 @@ export class FontObfuscator {
       out.push(ch);
     }
 
-    return out;
+    return { alphabet: out, freqs: dynamicData.freqs };
   }
 
   private findUnmappedChars(
@@ -2084,6 +2253,7 @@ export class FontObfuscator {
     pageKey: string;
     selectorKey: string;
     candidateAlphabet: string[];
+    candidateFrequencies?: Record<string, number>;
     clientFingerprint?: string;
   }): Promise<FontTicket & { sig: string }> {
     const now = Date.now();
@@ -2104,6 +2274,7 @@ export class FontObfuscator {
       pageKey: input.pageKey,
       selectorKey: input.selectorKey,
       candidateAlphabet: input.candidateAlphabet,
+      candidateFrequencies: input.candidateFrequencies,
       clientFingerprint: input.clientFingerprint,
     };
 
@@ -2314,7 +2485,11 @@ export class FontObfuscator {
   }
 
   /** Build a scrambled font. Called by scrambleFont (cached path) and obfuscateHtml (uncached path). */
-  private async buildScramble(seed: number, candidateAlphabet: string[]): Promise<ScrambleResult> {
+  private async buildScramble(
+    seed: number,
+    candidateAlphabet: string[],
+    candidateFrequencies?: Record<string, number>,
+  ): Promise<ScrambleResult> {
     const srcFont = await this.loadSourceFont();
 
     const usable: string[] = [];
@@ -2389,8 +2564,10 @@ export class FontObfuscator {
       }
     } else {
       // "adaptive" or "strict": use three-phase adaptiveAllocate.
-      // "frequency-weighted" requires HTML context unavailable here; fall back to "uniform".
       const allocatorFn: AllocatorStrategy =
+        this.variantAllocator === "frequency-weighted"
+          ? { distribute: frequencyWeightedDistribute }
+          :
         this.variantAllocator === "class-weighted"
           ? { distribute: classWeightedDistribute }
           : { distribute: uniformDistribute };
@@ -2400,6 +2577,7 @@ export class FontObfuscator {
         variantCount: this.variantCount,
         digitVariantCount: this.digitVariantCount,
         minPrimaryGuarantee: this.minPrimaryGuarantee,
+        freqs: toFrequencyMap(candidateFrequencies),
         onBudgetDegrade: this.onBudgetDegrade,
         allocator: allocatorFn,
       });
@@ -2453,12 +2631,17 @@ export class FontObfuscator {
     return { fontBytes: new Uint8Array(ab), mapping, variants };
   }
 
-  private scrambleFont(seed: number, candidateAlphabet: string[]): Promise<ScrambleResult> {
+  private scrambleFont(
+    seed: number,
+    candidateAlphabet: string[],
+    candidateFrequencies?: Record<string, number>,
+  ): Promise<ScrambleResult> {
     const cacheKey = JSON.stringify([
       seed,
       this.variantCount,
       this.digitVariantCount,
       candidateAlphabet,
+      hashFrequencyRecord(candidateAlphabet, candidateFrequencies),
     ]);
     const cached = this.scrambleCache.get(cacheKey);
     if (cached) return cached;
@@ -2469,7 +2652,7 @@ export class FontObfuscator {
       if (oldest !== undefined) this.scrambleCache.delete(oldest);
     }
 
-    const p = this.buildScramble(seed, candidateAlphabet);
+    const p = this.buildScramble(seed, candidateAlphabet, candidateFrequencies);
     // Clear the cache entry on failure so subsequent calls can retry.
     p.catch(() => {
       if (this.scrambleCache.get(cacheKey) === p) {
