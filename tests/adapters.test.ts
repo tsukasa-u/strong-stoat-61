@@ -52,6 +52,24 @@ it("withFetchObfuscation does not touch non-html responses", async () => {
   expect(await res.text()).toBe("plain");
 });
 
+it("withFetchObfuscation preserves HEAD semantics for html responses", async () => {
+  const obfuscator = createObfuscator();
+  const wrapped = withFetchObfuscation(
+    () =>
+      new Response("<html><head></head><body><p class='t'>Hello</p></body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8", "content-length": "999" },
+      }),
+    obfuscator,
+    { selectors: [".t"] },
+  );
+
+  const res = await wrapped(new Request("http://localhost/", { method: "HEAD" }));
+  expect(res.status).toBe(200);
+  expect(await res.text()).toBe("");
+  expect(res.headers.get("cache-control")).toBe("no-store");
+  expect(res.headers.get("content-length")).toBeNull();
+});
+
 it("framework aliases (Next/Remix/Astro/Hono) behave like fetch wrapper", async () => {
   const html = "<html><head></head><body><div id='a'>x</div></body></html>";
 
