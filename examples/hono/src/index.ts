@@ -6,6 +6,10 @@ const obfuscator = new FontObfuscator({
   fontUrl:
     "https://raw.githubusercontent.com/google/fonts/main/ofl/notosansjp/NotoSansJP%5Bwght%5D.ttf",
   fontRoutePrefix: "/_obf/font",
+  budgetPolicy: "adaptive",
+  variantAllocator: "frequency-weighted",
+  onBudgetDegrade: (e) =>
+    console.warn(`[font-obfuscator] variant shortfall: ${e.variantShortfall}/${e.totalChars} chars`),
 });
 
 const SELECTORS = [".secret"];
