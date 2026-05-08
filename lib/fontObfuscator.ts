@@ -1036,19 +1036,23 @@ function adaptiveAllocate(
   options: AdaptiveAllocateOptions,
 ): { mapping: Record<string, number>; variants: Record<string, number[]> } {
   const totalPool = pool.length;
+  const supplementaryHint =
+    totalPool === 6400
+      ? ` Consider puaPlaneMode: "bmp+supplementary" (capacity 137468).`
+      : "";
 
   // Phase 1: primary guarantee check.
   if (usable.length > totalPool) {
     throw new Error(
       `[FontObfuscator] critical overflow: ${usable.length} characters exceed PUA pool of ` +
-      `${totalPool} slots. Primary mapping is impossible. Reduce the alphabet.`,
+      `${totalPool} slots. Primary mapping is impossible.${supplementaryHint} Reduce the alphabet.`,
     );
   }
   if (usable.length * options.minPrimaryGuarantee > totalPool) {
     throw new Error(
       `[FontObfuscator] minPrimaryGuarantee (${options.minPrimaryGuarantee}) cannot be ` +
       `satisfied: needs ${usable.length * options.minPrimaryGuarantee} slots but pool has ` +
-      `${totalPool}.`,
+      `${totalPool}.${supplementaryHint}`,
     );
   }
 
