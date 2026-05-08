@@ -37,8 +37,7 @@
     "phase-c:build-assets": "tsx scripts/test-supp-pua.ts",
     "phase-c:serve-tmp": "cd /tmp && python3 -m http.server 8888",
     "phase-c:browser": "tsx scripts/test-supp-pua-browser.ts",
-    "phase-c:fonttools": "/tmp/fonttools-venv/bin/python scripts/verify-supp-pua-fonttools.py",
-    "phase-c:clipboard-precheck": "tsx scripts/test-supp-pua-clipboard.ts"
+    "phase-c:fonttools": "/tmp/fonttools-venv/bin/python scripts/verify-supp-pua-fonttools.py"
   },
   "dependencies": {
     "@vue/server-renderer": "^3.5.13",

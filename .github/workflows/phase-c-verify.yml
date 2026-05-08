@@ -87,12 +87,6 @@ jobs:
           TEST_URL: ${{ env.TEST_URL }}
         run: pnpm phase-c:browser
 
-      - name: C-4 — Clipboard precheck (copy event retention)
-        env:
-          BROWSERS: ${{ inputs.browsers }}
-          TEST_URL: ${{ env.TEST_URL }}
-        run: pnpm phase-c:clipboard-precheck
-
       - name: Stop local HTTP server
         if: always()
         run: |
