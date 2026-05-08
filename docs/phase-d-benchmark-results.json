@@ -1,0 +1,72 @@
+{
+  "generatedAt": "2026-05-08T12:48:09.786Z",
+  "fontUrl": "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+  "rows": [
+    {
+      "mode": "bmp",
+      "size": 500,
+      "uniqueAlphabet": 833,
+      "ttfBuildMs": 94.42,
+      "ttfSizeBytes": 156384,
+      "woff2CompressMs": 516.05,
+      "woff2SizeBytes": 91224,
+      "woff2DecompressMs": 4.59,
+      "roundtripTtfBytes": 156384
+    },
+    {
+      "mode": "bmp",
+      "size": 1000,
+      "uniqueAlphabet": 1333,
+      "ttfBuildMs": 135.65,
+      "ttfSizeBytes": 305056,
+      "woff2CompressMs": 875.64,
+      "woff2SizeBytes": 175440,
+      "woff2DecompressMs": 3.07,
+      "roundtripTtfBytes": 305056
+    },
+    {
+      "mode": "bmp",
+      "size": 5000,
+      "uniqueAlphabet": 5333,
+      "ttfBuildMs": 558.8,
+      "ttfSizeBytes": 1478844,
+      "woff2CompressMs": 3313.48,
+      "woff2SizeBytes": 815688,
+      "woff2DecompressMs": 12.87,
+      "roundtripTtfBytes": 1478844
+    },
+    {
+      "mode": "bmp+supplementary",
+      "size": 500,
+      "uniqueAlphabet": 833,
+      "ttfBuildMs": 80.8,
+      "ttfSizeBytes": 160052,
+      "woff2CompressMs": 387.71,
+      "woff2SizeBytes": 93268,
+      "woff2DecompressMs": 1.2,
+      "roundtripTtfBytes": 160052
+    },
+    {
+      "mode": "bmp+supplementary",
+      "size": 1000,
+      "uniqueAlphabet": 1333,
+      "ttfBuildMs": 131.92,
+      "ttfSizeBytes": 310948,
+      "woff2CompressMs": 656.2,
+      "woff2SizeBytes": 178180,
+      "woff2DecompressMs": 1.94,
+      "roundtripTtfBytes": 310948
+    },
+    {
+      "mode": "bmp+supplementary",
+      "size": 5000,
+      "uniqueAlphabet": 5333,
+      "ttfBuildMs": 654.21,
+      "ttfSizeBytes": 1502040,
+      "woff2CompressMs": 2979.4,
+      "woff2SizeBytes": 828956,
+      "woff2DecompressMs": 8.87,
+      "roundtripTtfBytes": 1502040
+    }
+  ]
+}

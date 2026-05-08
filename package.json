@@ -37,7 +37,10 @@
     "phase-c:build-assets": "tsx scripts/test-supp-pua.ts",
     "phase-c:serve-tmp": "cd /tmp && python3 -m http.server 8888",
     "phase-c:browser": "tsx scripts/test-supp-pua-browser.ts",
-    "phase-c:fonttools": "/tmp/fonttools-venv/bin/python scripts/verify-supp-pua-fonttools.py"
+    "phase-c:fonttools": "/tmp/fonttools-venv/bin/python scripts/verify-supp-pua-fonttools.py",
+    "phase-d:runtime:node": "node scripts/phase-d-runtime-compat.mjs",
+    "phase-d:runtime:deno": "deno run scripts/phase-d-runtime-compat.mjs",
+    "phase-d:benchmark": "pnpm exec tsx scripts/phase-d-benchmark.ts"
   },
   "dependencies": {
     "@vue/server-renderer": "^3.5.13",
