@@ -1277,3 +1277,79 @@ it("getRotatingPrecomputedPage: different selectors produce isolated cache entri
   expect(served2).not.toContain("Beta");
 });
 
+// ---------------------------------------------------------------------------
+// Phase D: supplementary PUA tests
+// ---------------------------------------------------------------------------
+
+it("constructor overflow in bmp mode suggests bmp+supplementary", () => {
+  const alphabet = Array.from({ length: 7000 }, (_, i) => String.fromCodePoint(0x3400 + i));
+  expect(() => new FontObfuscator({
+    fontUrl: "https://example.com/font.otf",
+    alphabet,
+    puaPlaneMode: "bmp",
+  })).toThrow(/puaPlaneMode: "bmp\+supplementary"/);
+});
+
+it("constructor accepts large alphabet in bmp+supplementary mode", () => {
+  const alphabet = Array.from({ length: 7000 }, (_, i) => String.fromCodePoint(0x3400 + i));
+  expect(() => new FontObfuscator({
+    fontUrl: "https://example.com/font.otf",
+    alphabet,
+    puaPlaneMode: "bmp+supplementary",
+  })).not.toThrow();
+});
+
+it("obfuscateHtml emits bmp unicode-range in default mode", async () => {
+  const obf = new FontObfuscator({
+    fontUrl:
+      "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+  });
+
+  const html = "<html><head></head><body><p class=\"a\">Hello</p></body></html>";
+  const out = await obf.obfuscateHtml(html, { selectors: [".a"] });
+
+  expect(out).toContain("unicode-range:U+E000-F8FF");
+  expect(out).not.toContain("U+F0000-FFFFD");
+});
+
+it("obfuscateHtml emits supplementary unicode-range when enabled", async () => {
+  const obf = new FontObfuscator({
+    fontUrl:
+      "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+    puaPlaneMode: "bmp+supplementary",
+  });
+
+  const html = "<html><head></head><body><p class=\"a\">Hello</p></body></html>";
+  const out = await obf.obfuscateHtml(html, { selectors: [".a"] });
+
+  expect(out).toContain("unicode-range:U+E000-F8FF, U+F0000-FFFFD, U+100000-10FFFD");
+});
+
+it("servePrecomputed emits supplementary unicode-range when enabled", async () => {
+  const obf = new FontObfuscator({
+    fontUrl:
+      "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+    puaPlaneMode: "bmp+supplementary",
+  });
+
+  const html = "<html><head></head><body><p class=\"a\">Hello</p></body></html>";
+  const page = await obf.precomputeHtml(html, [".a"]);
+  const out = await obf.servePrecomputed(page);
+
+  expect(out).toContain("unicode-range:U+E000-F8FF, U+F0000-FFFFD, U+100000-10FFFD");
+});
+
+it("serveWithMapping emits supplementary unicode-range when enabled", async () => {
+  const obf = new FontObfuscator({
+    fontUrl:
+      "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+    puaPlaneMode: "bmp+supplementary",
+  });
+
+  const html = "<html><head></head><body><p class=\"a\">Hello</p></body></html>";
+  const pm = await obf.precomputeMapping(html);
+  const out = await obf.serveWithMapping(html, [".a"], pm);
+
+  expect(out).toContain("unicode-range:U+E000-F8FF, U+F0000-FFFFD, U+100000-10FFFD");
+});
+

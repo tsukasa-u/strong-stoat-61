@@ -1765,12 +1765,16 @@ export class FontObfuscator {
     const estimatedSlots =
       nonDigitInAlphabet * this.variantCount +
       digitInAlphabet * Math.max(this.variantCount, this.digitVariantCount);
+    const supplementaryHint =
+      this.puaPlaneMode === "bmp"
+        ? ` Consider puaPlaneMode: "bmp+supplementary" (capacity 137468).`
+        : "";
     if (this.alphabet.length > this.maxMappableChars) {
       throw new Error(
         `[FontObfuscator] alphabet has ${this.alphabet.length} characters ` +
         `but the PUA pool only holds ${this.maxMappableChars}. ` +
         `Characters beyond the limit cannot be obfuscated and would appear as plaintext. ` +
-        `Reduce your alphabet or split content across multiple FontObfuscator instances.`,
+        `${supplementaryHint} Reduce your alphabet or split content across multiple FontObfuscator instances.`,
       );
     } else if (estimatedSlots > this.maxMappableChars) {
       const maxSafeVariant = Math.floor(this.maxMappableChars / this.alphabet.length);
@@ -2152,12 +2156,12 @@ export class FontObfuscator {
 
     const family = options.fontFamilyName ?? `Obf_${ticket.token.slice(0, 8)}`;
     const fontUrl = `${this.fontRoutePrefix}/${ticket.token}?exp=${ticket.expiry}&sig=${ticket.sig}`;
-    const style = `<style>@font-face{font-family:${safeCssStringLiteral(family)};src:url("${fontUrl}") format("truetype");font-display:${this.fontDisplay};}${selectors.join(",")}{font-family:${safeCssStringLiteral(family)},sans-serif !important;}</style>`;
+    const unicodeRange = generateUnicodeRangeCss(this.puaPlaneMode);
+    const style = `<style>@font-face{font-family:${safeCssStringLiteral(family)};src:url("${fontUrl}") format("truetype");font-display:${this.fontDisplay};unicode-range:${unicodeRange};}${selectors.join(",")}{font-family:${safeCssStringLiteral(family)},sans-serif !important;}</style>`;
     // Re-obfuscate per request with a fresh variantSeed so digit-variant
     // codepoints differ between responses within the same rotation window.
     const source = rawHtml ?? puaHtml;
     let out = obfuscateSelectorScopeHtml(source, selectors, mapping, variants ?? {}, secureRandU32());
-    const unicodeRange = generateUnicodeRangeCss(this.puaPlaneMode);
     out = injectBeforeEndTag(out, "head", style);
 
     const devMode = options.devMode ?? this.devMode;
@@ -2220,7 +2224,8 @@ export class FontObfuscator {
 
     const family = options.fontFamilyName ?? `Obf_${ticket.token.slice(0, 8)}`;
     const fontUrl = `${this.fontRoutePrefix}/${ticket.token}?exp=${ticket.expiry}&sig=${ticket.sig}`;
-    const style = `<style>@font-face{font-family:${safeCssStringLiteral(family)};src:url("${fontUrl}") format("truetype");font-display:${this.fontDisplay};}${selectors.join(",")}{font-family:${safeCssStringLiteral(family)},sans-serif !important;}</style>`;
+    const unicodeRange = generateUnicodeRangeCss(this.puaPlaneMode);
+    const style = `<style>@font-face{font-family:${safeCssStringLiteral(family)};src:url("${fontUrl}") format("truetype");font-display:${this.fontDisplay};unicode-range:${unicodeRange};}${selectors.join(",")}{font-family:${safeCssStringLiteral(family)},sans-serif !important;}</style>`;
 
     let out = obfuscateSelectorScopeHtml(html, selectors, mapping, variants, secureRandU32());
     out = injectBeforeEndTag(out, "head", style);
@@ -2614,11 +2619,15 @@ export class FontObfuscator {
     if (usable.length > puaPool.length) {
       const dropped = usable.length - puaPool.length;
       const examples = usable.slice(puaPool.length, puaPool.length + 8).join(" ");
+      const supplementaryHint =
+        this.puaPlaneMode === "bmp"
+          ? ` Consider puaPlaneMode: "bmp+supplementary" (capacity 137468).`
+          : "";
       throw new Error(
         `[FontObfuscator] ${usable.length} characters are mappable in the source font ` +
         `but the PUA pool only has ${puaPool.length} slots. ` +
         `The last ${dropped} characters (e.g. "${examples}") would appear as plaintext. ` +
-        `Reduce your alphabet or lower variantCount.`,
+        `${supplementaryHint} Reduce your alphabet or lower variantCount.`,
       );
     }
 
