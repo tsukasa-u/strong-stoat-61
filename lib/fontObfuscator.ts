@@ -6,6 +6,20 @@ const opentype = (opentypeModule as { default?: unknown }).default ?? opentypeMo
 const wawoff2 = (wawoff2Module as { default?: unknown }).default ?? wawoff2Module;
 
 /**
+ * PUA plane selection for font obfuscation capacity.
+ *
+ * - `"bmp"`: BMP Private Use Area only (U+E000–U+F8FF), 6,400 codepoints.
+ *   Recommended for typical content. Good backward compatibility.
+ * - `"bmp+supplementary"`: BMP + Supplementary PUA (Plane 15 & 16),
+ *   totaling 137,468 codepoints. Enables obfuscation of large character sets
+ *   (e.g., dictionaries, large kanji inventories). ⚠️ Experimental — comprehensive
+ *   testing across devices recommended before production use.
+ *
+ * @default "bmp"
+ */
+export type PuaPlaneMode = "bmp" | "bmp+supplementary";
+
+/**
  * PUA budget overflow policy.
  *
  * - `"strict"`: throws at construction time if estimated slot usage exceeds the
@@ -66,6 +80,18 @@ export interface FontObfuscatorOptions {
    * scheme — other schemes (e.g. `file://`) are rejected to prevent SSRF.
    */
   fontUrl: string;
+  /**
+   * PUA plane selection for character capacity.
+   *
+   * - `"bmp"` (default): Classic BMP Private Use Area (U+E000–U+F8FF), 6,400 codepoints.
+   *   Suitable for typical content with Latin + CJK + common symbols.
+   * - `"bmp+supplementary"`: Extends to Supplementary PUA (Plane 15 & 16), 137,468 total.
+   *   Enables larger character sets (e.g., full Joyo kanji + rare variants, dictionaries).
+   *   ⚠️ Experimental — test thoroughly across target devices before production.
+   *
+   * @default "bmp"
+   */
+  puaPlaneMode?: PuaPlaneMode;
   fontRoutePrefix?: string;
   /**
    * How long (ms) font tickets remain in the server's in-memory registry.
@@ -326,7 +352,32 @@ const MAX_GATE_KEY_IP_LEN = 64;
 const MAX_GATE_KEY_UA_LEN = 512;
 const PUA_START = 0xE000;
 const PUA_END = 0xF8FF;
-const MAX_MAPPABLE_CHARS = PUA_END - PUA_START + 1;
+const SUPP_PUA_A_START = 0xF0000;
+const SUPP_PUA_A_END = 0xFFFFF;
+const SUPP_PUA_B_START = 0x100000;
+const SUPP_PUA_B_END = 0x10FFFF;
+
+/**
+ * Compute maximum allocable PUA codepoints based on plane selection.
+ * These values are computed at FontObfuscator construction time and stored
+ * in the instance (see FontObfuscator.maxMappableChars).
+ *
+ * @param mode PUA plane mode (BMP only or BMP+Supplementary)
+ * @returns Total count of usable PUA codepoints (excluding Unicode-designated non-characters)
+ */
+function computeMaxMappableChars(mode: PuaPlaneMode): number {
+  const bmpCount = PUA_END - PUA_START + 1; // 6,400
+  if (mode === "bmp") {
+    return bmpCount;
+  }
+  // "bmp+supplementary": add Plane 15 & 16, excluding non-characters (U+FFFFE/FFFFF, U+10FFFE/10FFFF)
+  const suppACount = (SUPP_PUA_A_END - SUPP_PUA_A_START + 1) - 2; // 65,534
+  const suppBCount = (SUPP_PUA_B_END - SUPP_PUA_B_START + 1) - 2; // 65,534
+  return bmpCount + suppACount + suppBCount; // 137,468
+}
+
+// Default for backward compatibility
+const MAX_MAPPABLE_CHARS = computeMaxMappableChars("bmp"); // 6,400
 const DEFAULT_VARIANT_COUNT = 1;
 const MAX_VARIANT_COUNT = 16;
 const DEFAULT_DIGIT_VARIANT_COUNT = 4;
@@ -715,13 +766,40 @@ function timingSafeEqual(a: string, b: string): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Build a shuffled pool of BMP PUA codepoints (U+E000–U+F8FF, 6 400 slots).
+ * Build a shuffled pool of PUA codepoints.
  * The pool is a flat array of integers; callers index into it to assign
  * primary and variant PUA codepoints.
+ *
+ * @param mode PUA plane mode: "bmp" (6,400 slots) or "bmp+supplementary" (137,468 slots)
+ * @param seed Random seed for reproducible shuffling (mulberry32)
+ * @returns Shuffled array of usable PUA codepoints
  */
-function buildPuaPool(seed: number): number[] {
+function buildPuaPool(mode: PuaPlaneMode, seed: number): number[] {
   const pool: number[] = [];
-  for (let i = PUA_START; i <= PUA_END; i++) pool.push(i);
+  
+  // BMP PUA: U+E000–U+F8FF
+  for (let i = PUA_START; i <= PUA_END; i++) {
+    pool.push(i);
+  }
+
+  if (mode === "bmp+supplementary") {
+    // Supplementary PUA-A (Plane 15): U+F0000–U+FFFFD
+    // (excluding U+FFFFE and U+FFFFF as they are non-characters per Unicode standard)
+    for (let i = SUPP_PUA_A_START; i < SUPP_PUA_A_END; i++) {
+      // Skip U+FFFFE and U+FFFFF
+      if (i === 0xFFFE || i === 0xFFFFF) continue;
+      pool.push(i);
+    }
+
+    // Supplementary PUA-B (Plane 16): U+100000–U+10FFFD
+    // (excluding U+10FFFE and U+10FFFF as they are non-characters per Unicode standard)
+    for (let i = SUPP_PUA_B_START; i < SUPP_PUA_B_END; i++) {
+      // Skip U+10FFFE and U+10FFFF
+      if (i === 0x10FFFE || i === 0x10FFFF) continue;
+      pool.push(i);
+    }
+  }
+
   return shuffle(pool, mulberry32(seed));
 }
 
@@ -1568,6 +1646,8 @@ function safeCssStringLiteral(value: string): string {
  */
 export class FontObfuscator {
   private readonly fontUrl: string;
+  private readonly puaPlaneMode: PuaPlaneMode;
+  private readonly maxMappableChars: number;
   private readonly fontRoutePrefix: string;
   private readonly sessionTtlMs: number;
   private readonly fontUrlTtlMs: number;
@@ -1613,6 +1693,8 @@ export class FontObfuscator {
       throw e;
     }
     this.fontUrl = options.fontUrl;
+    this.puaPlaneMode = options.puaPlaneMode ?? "bmp";
+    this.maxMappableChars = computeMaxMappableChars(this.puaPlaneMode);
     const prefix = options.fontRoutePrefix ?? DEFAULT_FONT_ROUTE_PREFIX;
     // Validate fontRoutePrefix to prevent CSS/path injection:
     // must be an absolute path consisting only of safe URL path characters.
@@ -1661,19 +1743,19 @@ export class FontObfuscator {
     const estimatedSlots =
       nonDigitInAlphabet * this.variantCount +
       digitInAlphabet * Math.max(this.variantCount, this.digitVariantCount);
-    if (this.alphabet.length > MAX_MAPPABLE_CHARS) {
+    if (this.alphabet.length > this.maxMappableChars) {
       throw new Error(
         `[FontObfuscator] alphabet has ${this.alphabet.length} characters ` +
-        `but the PUA pool only holds ${MAX_MAPPABLE_CHARS}. ` +
+        `but the PUA pool only holds ${this.maxMappableChars}. ` +
         `Characters beyond the limit cannot be obfuscated and would appear as plaintext. ` +
         `Reduce your alphabet or split content across multiple FontObfuscator instances.`,
       );
-    } else if (estimatedSlots > MAX_MAPPABLE_CHARS) {
-      const maxSafeVariant = Math.floor(MAX_MAPPABLE_CHARS / this.alphabet.length);
+    } else if (estimatedSlots > this.maxMappableChars) {
+      const maxSafeVariant = Math.floor(this.maxMappableChars / this.alphabet.length);
       if (this.budgetPolicy === "strict") {
         throw new Error(
           `[FontObfuscator] strict mode: estimated PUA slots needed (${estimatedSlots}) ` +
-          `exceeds pool of ${MAX_MAPPABLE_CHARS}. ` +
+          `exceeds pool of ${this.maxMappableChars}. ` +
           `Lower variantCount to ≤ ${maxSafeVariant} or reduce the alphabet.`,
         );
       } else if (this.budgetPolicy === "legacy") {
@@ -1681,7 +1763,7 @@ export class FontObfuscator {
           `[FontObfuscator] PUA budget warning: estimated PUA slots needed = ${estimatedSlots} ` +
           `(${nonDigitInAlphabet} non-digit chars × ${this.variantCount} + ` +
           `${digitInAlphabet} digit chars × ${Math.max(this.variantCount, this.digitVariantCount)}), ` +
-          `but the PUA pool only holds ${MAX_MAPPABLE_CHARS}. ` +
+          `but the PUA pool only holds ${this.maxMappableChars}. ` +
           `Characters that exceed the budget will be obfuscated but with fewer variants, ` +
           `weakening frequency-analysis resistance. ` +
           `Consider setting variantCount ≤ ${maxSafeVariant} for this alphabet size.`,
@@ -2501,7 +2583,7 @@ export class FontObfuscator {
       throw new Error("no usable glyphs in source font for alphabet");
     }
 
-    const puaPool = buildPuaPool(seed);
+    const puaPool = buildPuaPool(this.puaPlaneMode, seed);
 
     // [Security] Last-resort guard: even after the constructor check, if the
     // candidate alphabet (which includes dynamic HTML chars) exceeds the pool,
@@ -2556,7 +2638,7 @@ export class FontObfuscator {
           console.warn(
             `[FontObfuscator] PUA variant budget exhausted: ${shortfallCount} of ${usable.length} characters ` +
             `received fewer than their requested variants ` +
-            `(need ${slotsNeeded} slots total, PUA pool has ${MAX_MAPPABLE_CHARS}). ` +
+            `(need ${slotsNeeded} slots total, PUA pool has ${this.maxMappableChars}). ` +
             `These characters are still obfuscated but their frequency pattern is less obscured. ` +
             `Consider lowering variantCount (currently ${this.variantCount}) or reducing the alphabet size.`,
           );
