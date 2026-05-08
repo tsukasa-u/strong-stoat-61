@@ -805,6 +805,24 @@ function buildPuaPool(mode: PuaPlaneMode, seed: number): number[] {
 
 // ---------------------------------------------------------------------------
 // Variant allocator strategies
+/**
+ * Generate CSS unicode-range declaration for @font-face rules.
+ *
+ * @param mode PUA plane mode (BMP only or BMP+Supplementary)
+ * @returns CSS unicode-range property value
+ *
+ * Examples:
+ * - "bmp" → "U+E000-F8FF"
+ * - "bmp+supplementary" → "U+E000-F8FF, U+F0000-FFFFD, U+100000-10FFFD"
+ */
+function generateUnicodeRangeCss(mode: PuaPlaneMode): string {
+  if (mode === "bmp") {
+    return "U+E000-F8FF";
+  }
+  // "bmp+supplementary": BMP + Plane 15 + Plane 16
+  return "U+E000-F8FF, U+F0000-FFFFD, U+100000-10FFFD";
+}
+
 // ---------------------------------------------------------------------------
 
 interface AllocatorStrategy {
@@ -1985,7 +2003,8 @@ export class FontObfuscator {
 
     const family = options.fontFamilyName ?? `Obf_${ticket.token.slice(0, 8)}`;
     const fontUrl = `${this.fontRoutePrefix}/${ticket.token}?exp=${ticket.expiry}&sig=${ticket.sig}`;
-    const style = `<style>@font-face{font-family:${safeCssStringLiteral(family)};src:url("${fontUrl}") format("truetype");font-display:${this.fontDisplay};}${normalizedSelectors.join(",")}{font-family:${safeCssStringLiteral(family)},sans-serif !important;}</style>`;
+  const unicodeRange = generateUnicodeRangeCss(this.puaPlaneMode);
+  const style = `<style>@font-face{font-family:${safeCssStringLiteral(family)};src:url("${fontUrl}") format("truetype");font-display:${this.fontDisplay};unicode-range:${unicodeRange};}${normalizedSelectors.join(",")}{font-family:${safeCssStringLiteral(family)},sans-serif !important;}</style>`;
 
     let out = obfuscateSelectorScopeHtml(
       html,
@@ -2130,11 +2149,11 @@ export class FontObfuscator {
     const family = options.fontFamilyName ?? `Obf_${ticket.token.slice(0, 8)}`;
     const fontUrl = `${this.fontRoutePrefix}/${ticket.token}?exp=${ticket.expiry}&sig=${ticket.sig}`;
     const style = `<style>@font-face{font-family:${safeCssStringLiteral(family)};src:url("${fontUrl}") format("truetype");font-display:${this.fontDisplay};}${selectors.join(",")}{font-family:${safeCssStringLiteral(family)},sans-serif !important;}</style>`;
-
     // Re-obfuscate per request with a fresh variantSeed so digit-variant
     // codepoints differ between responses within the same rotation window.
     const source = rawHtml ?? puaHtml;
     let out = obfuscateSelectorScopeHtml(source, selectors, mapping, variants ?? {}, secureRandU32());
+    const unicodeRange = generateUnicodeRangeCss(this.puaPlaneMode);
     out = injectBeforeEndTag(out, "head", style);
 
     const devMode = options.devMode ?? this.devMode;
