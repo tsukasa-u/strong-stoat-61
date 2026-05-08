@@ -32,11 +32,11 @@ function buildPuaPool(mode, seed) {
 
   if (mode === "bmp+supplementary") {
     for (let i = SUPP_PUA_A_START; i < SUPP_PUA_A_END; i++) {
-      if (i === 0xFFFFE || i === 0xFFFFF) continue;
+      if (i === 0xFFFFE) continue;
       pool.push(i);
     }
     for (let i = SUPP_PUA_B_START; i < SUPP_PUA_B_END; i++) {
-      if (i === 0x10FFFE || i === 0x10FFFF) continue;
+      if (i === 0x10FFFE) continue;
       pool.push(i);
     }
   }

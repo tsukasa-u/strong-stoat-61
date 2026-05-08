@@ -792,10 +792,10 @@ function buildPuaPool(mode: PuaPlaneMode, seed: number): number[] {
     }
 
     // Supplementary PUA-B (Plane 16): U+100000–U+10FFFD
-    // (excluding U+10FFFE and U+10FFFF as they are non-characters per Unicode standard)
+    // (excluding U+10FFFE as non-character; U+10FFFF is excluded by loop bound)
     for (let i = SUPP_PUA_B_START; i < SUPP_PUA_B_END; i++) {
-      // Skip U+10FFFE and U+10FFFF
-      if (i === 0x10FFFE || i === 0x10FFFF) continue;
+      // Skip U+10FFFE
+      if (i === 0x10FFFE) continue;
       pool.push(i);
     }
   }
