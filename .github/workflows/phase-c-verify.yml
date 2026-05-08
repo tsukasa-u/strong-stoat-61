@@ -1,0 +1,105 @@
+# Phase C: 補助PUA検証ワークフロー
+# このワークフローは feature ブランチ専用です。main にはマージしないでください。
+#
+# 手動実行: Actions タブ → "Phase C: Supplementary PUA Verification" → Run workflow
+
+name: "Phase C Supplementary PUA Verification"
+
+on:
+  workflow_dispatch:
+    inputs:
+      browsers:
+        description: 'テスト対象ブラウザ (chromium / firefox / webkit / all)'
+        required: false
+        default: 'all'
+
+jobs:
+  verify:
+    name: Phase C checks
+    if: github.ref_name != 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10'
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers + system dependencies
+        run: pnpm exec playwright install --with-deps chromium firefox webkit
+
+      - name: Setup Python venv + fonttools
+        run: |
+          python3 -m venv /tmp/fonttools-venv
+          /tmp/fonttools-venv/bin/pip install --quiet fonttools brotli
+
+      - name: C-1 / C-2 — Build assets (TTF / WOFF2 / HTML fixture)
+        run: pnpm phase-c:build-assets
+
+      - name: C-1 / C-2 — fonttools verification (cmap format 12, U+F0100)
+        run: pnpm phase-c:fonttools
+
+      - name: Start local HTTP server for browser tests
+        run: |
+          TEST_SERVER_PORT=38888
+          TEST_URL="http://127.0.0.1:${TEST_SERVER_PORT}/supp-test.html"
+          cd /tmp
+          python3 -m http.server "$TEST_SERVER_PORT" --directory /tmp &
+          HTTP_SERVER_PID=$!
+          echo "HTTP_SERVER_PID=$HTTP_SERVER_PID" >> "$GITHUB_ENV"
+          echo "TEST_URL=$TEST_URL" >> "$GITHUB_ENV"
+
+          # ポートが開き、かつ期待する fixture を返すまで待機
+          ready=0
+          for i in $(seq 1 15); do
+            if ! kill -0 "$HTTP_SERVER_PID" 2>/dev/null; then
+              echo "Local HTTP server exited unexpectedly" >&2
+              exit 1
+            fi
+            if curl -fsS "$TEST_URL" | grep -q "Supplementary PUA Font Test"; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "Local HTTP server did not become ready in time" >&2
+            exit 1
+          fi
+
+      - name: C-3 — Browser rendering check (OTS / glyph / fallback)
+        env:
+          BROWSERS: ${{ inputs.browsers }}
+          TEST_URL: ${{ env.TEST_URL }}
+        run: pnpm phase-c:browser
+
+      - name: Stop local HTTP server
+        if: always()
+        run: |
+          if [ -n "$HTTP_SERVER_PID" ]; then
+            kill "$HTTP_SERVER_PID" || true
+          fi
+
+      - name: Upload Playwright traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: |
+            /tmp/supp-test.html
+            test-results/
+          retention-days: 7

@@ -33,7 +33,14 @@
     "example:react": "pnpm build && tsx examples/react/main.tsx",
     "example:vue": "pnpm build && tsx examples/vue/main.ts",
     "example:solid": "pnpm build && tsx examples/solid/main.tsx",
-    "verify:examples": "bash scripts/verify_examples.sh"
+    "verify:examples": "bash scripts/verify_examples.sh",
+    "phase-c:build-assets": "tsx scripts/test-supp-pua.ts",
+    "phase-c:serve-tmp": "cd /tmp && python3 -m http.server 8888",
+    "phase-c:browser": "tsx scripts/test-supp-pua-browser.ts",
+    "phase-c:fonttools": "/tmp/fonttools-venv/bin/python scripts/verify-supp-pua-fonttools.py",
+    "phase-d:runtime:node": "node scripts/phase-d-runtime-compat.mjs",
+    "phase-d:runtime:deno": "deno run scripts/phase-d-runtime-compat.mjs",
+    "phase-d:benchmark": "pnpm exec tsx scripts/phase-d-benchmark.ts"
   },
   "dependencies": {
     "@vue/server-renderer": "^3.5.13",
@@ -49,9 +56,18 @@
   "devDependencies": {
     "@types/he": "^1.2.3",
     "@types/node": "^22.10.0",
+    "playwright": "^1.53.0",
     "tsup": "^8.5.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
+  },
+  "pnpm": {
+    "overrides": {
+      "h3": ">=1.15.11",
+      "postcss": ">=8.5.10",
+      "astro": ">=6.1.6",
+      "cookie": ">=0.7.0"
+    }
   }
 }
