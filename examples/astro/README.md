@@ -10,6 +10,7 @@ Canonical Astro app files in this directory:
 Note:
 
 - `main.ts` is not part of Astro file-based routing. It is a repository-level runnable adapter entry used by `pnpm verify:examples`.
+- The runnable adapter entry supports demo paths: `/`, `/counter`, `/pre-encoded`.
 
 ## Run
 

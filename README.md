@@ -55,8 +55,10 @@ It remaps glyphs to Private Use Area (PUA) code points so that:
 
 ### 5) Dynamic values (counters, prices)
 
-Use `preEncodeShuffled` to pre-encode arrays of values server-side.
-The client receives only an array of PUA strings and an index — never the mapping.
+Keep dynamic state in framework-native components/pages (React/Vue/Solid/Svelte/Next/Nuxt/Remix).
+Use response middleware/adapters only for HTML obfuscation.
+
+`preEncodeShuffled` is available for advanced server-side pipelines where you must ship pre-encoded value sets.
 
 ## How To Preserve Copy-Resistance
 
@@ -127,7 +129,7 @@ matches the font token path, `null` otherwise.
 ### `await obfuscator.precomputeHtml(html, selectors)` → `PrecomputedPage`
 
 Builds the mapping once.  Store the result; call `servePrecomputed` per request.
-To inject `preEncodeShuffled` arrays, patch `page.rawHtml` before caching:
+If needed, you can also patch `page.rawHtml` before caching to inject advanced pre-encoded payloads:
 
 ```ts
 const page = await obfuscator.precomputeHtml(BASE_HTML, [".secret"]);
@@ -167,7 +169,7 @@ Encode a single string to PUA characters server-side.
 
 Pre-encode an array of values with shuffled positions and decoy entries.
 The client receives `{ encoded, indices }` and reads `encoded[indices[i]]`.
-See the `@example` in the JSDoc for a full counter pattern.
+This is an optional low-level utility; prefer framework-native state for app logic.
 
 ## Adapter Behavior by Framework
 

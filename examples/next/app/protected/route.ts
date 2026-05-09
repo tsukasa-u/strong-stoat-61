@@ -3,6 +3,9 @@ import {
   FontObfuscator,
   withNextRouteHandlerObfuscation,
 } from "font-obfuscator";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 
 const obfuscator = new FontObfuscator({
   fontUrl:
@@ -10,24 +13,14 @@ const obfuscator = new FontObfuscator({
   fontRoutePrefix: "/_obf/font",
 });
 
-const baseHandler = async () =>
-  new NextResponse(
-    `<!doctype html>
-<html lang="ja">
-<head><meta charset="utf-8" /><title>Next Protected Route</title><style>button{padding:.45rem .8rem;margin:.24rem;border:1px solid #d1d5db;border-radius:.45rem;background:#fff;color:#111827;font-size:.9rem;font-weight:600;cursor:pointer}button:hover{border-color:#9ca3af}button:active{background:#f3f4f6}</style></head>
-<body style="min-height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;margin:0">
-  <h1>Protected HTML route</h1>
-  <p class="secret">このテキストは難読化されます。Hello World</p>
-  <div>
-    <button onclick="c++;el.textContent=c">Count</button>
-    <button onclick="c=0;el.textContent=0">Reset</button>
-  </div>
-  <p id="cnt">0</p>
-  <script>var c=0,el=document.getElementById('cnt')<\/script>
-</body>
-</html>`,
-    { headers: { "content-type": "text/html; charset=utf-8" } },
-  );
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+const baseHandler = async () => {
+  const html = await readFile(join(__dirname, "template.html"), "utf-8");
+  return new NextResponse(html, {
+    headers: { "content-type": "text/html; charset=utf-8" },
+  });
+};
 
 export const GET = withNextRouteHandlerObfuscation(baseHandler, obfuscator, {
   selectors: [".secret"],

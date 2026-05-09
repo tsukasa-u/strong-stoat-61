@@ -2,6 +2,10 @@
 /**
  * Generic Fetch adapter runnable example (TSX)
  *
+ * Note:
+ * This file demonstrates a custom JSX runtime in plain Fetch handlers.
+ * It is intentionally framework-agnostic and does not use React / Solid / Vue SSR.
+ *
  * Run:
  *   pnpm example:fetch:tsx
  */
@@ -81,10 +85,10 @@ function Page(): VNode {
     <html lang="ja">
       <head>
         <meta charSet="utf-8" />
-        <title>Fetch Adapter TSX Example</title>
+        <title>Fetch Adapter TSX Example (Custom JSX Runtime)</title>
       </head>
       <body>
-        <h1>withFetchObfuscation (TSX)</h1>
+        <h1>withFetchObfuscation (TSX, custom runtime)</h1>
         <p className="secret">このテキストは難読化されます。Hello World</p>
         <p className="plain">このテキストは通常表示です。</p>
       </body>

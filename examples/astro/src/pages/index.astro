@@ -14,17 +14,39 @@ const title = 'Astro Example';
   </head>
   <body style="min-height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;margin:0">
     <h1>Astro example</h1>
+
+    <h2>1) 通常文字列の難読化</h2>
     <p class="secret">このテキストは難読化されます。Hello World</p>
+
+    <h2>2) 数値カウント</h2>
     <div>
       <button id="btn-count">Count</button>
       <button id="btn-reset">Reset</button>
     </div>
     <p id="cnt" class="secret">0</p>
+
+    <h2>3) 事前エンコード済み状態</h2>
+    <div>
+      <button id="btn-secure-next">Next Secure</button>
+      <button id="btn-secure-reset">Reset Secure</button>
+    </div>
+    <p id="secure-state" class="secret">c3</p>
+
     <script>
       let c = 0;
+      const secure = { encoded: ["a1", "b2", "c3", "d4"], indices: [2, 0, 3, 1], pos: 0 };
       const el = document.getElementById('cnt')!;
+      const secureEl = document.getElementById('secure-state')!;
       document.getElementById('btn-count')!.addEventListener('click', () => { el.textContent = String(++c); });
       document.getElementById('btn-reset')!.addEventListener('click', () => { c = 0; el.textContent = '0'; });
+      document.getElementById('btn-secure-next')!.addEventListener('click', () => {
+        secure.pos = Math.min(secure.pos + 1, secure.indices.length - 1);
+        secureEl.textContent = secure.encoded[secure.indices[secure.pos]];
+      });
+      document.getElementById('btn-secure-reset')!.addEventListener('click', () => {
+        secure.pos = 0;
+        secureEl.textContent = secure.encoded[secure.indices[secure.pos]];
+      });
     </script>
   </body>
 </html>

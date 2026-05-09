@@ -1,6 +1,6 @@
 # Vue SSR Example
 
-Minimal Vue SSR project entry.
+Vue SSR project entry using official-style Single File Component (`App.vue`).
 
 ## Run
 

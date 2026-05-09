@@ -1,6 +1,10 @@
 # Fastify Example
 
-Minimal Fastify project layout.
+Fastify example with route/view separation for obfuscation demos.
+
+- Routes: `src/routes/demoRoutes.ts`
+- Views: `src/views/demoViews.tsx`
+- Supported pages: `/`, `/counter`, `/pre-encoded`
 
 ## Run
 

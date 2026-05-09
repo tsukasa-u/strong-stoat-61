@@ -32,7 +32,6 @@
     "example:sveltekit": "pnpm build && tsx examples/sveltekit/main.ts",
     "example:react": "pnpm build && tsx examples/react/main.tsx",
     "example:vue": "pnpm build && tsx examples/vue/main.ts",
-    "example:solid": "pnpm build && tsx examples/solid/main.tsx",
     "verify:examples": "bash scripts/verify_examples.sh",
     "phase-c:build-assets": "tsx scripts/test-supp-pua.ts",
     "phase-c:serve-tmp": "cd /tmp && python3 -m http.server 8888",

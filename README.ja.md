@@ -54,8 +54,10 @@ Font Obfuscator は、HTMLレスポンスに難読化処理を注入するライ
 
 ### 5) 動的な値（カウンター・価格）
 
-`preEncodeShuffled` を使ってサーバーサイドで値の配列を事前エンコードします。
-クライアントには PUA 文字列の配列とインデックスのみが届き、マッピングは渡されません。
+動的な状態は各フレームワークの標準的な状態管理（React/Vue/Solid/Svelte/Next/Nuxt/Remix）で扱い、
+レスポンス変換ミドルウェア／アダプタは HTML 難読化の責務に限定することを推奨します。
+
+`preEncodeShuffled` は、事前エンコード済みの値配列を配信する必要がある高度なサーバーサイド用途向けです。
 
 ## コピー耐性を維持する運用
 
@@ -141,7 +143,7 @@ Font Obfuscator は、HTMLレスポンスに難読化処理を注入するライ
 ### `await obfuscator.precomputeHtml(html, selectors)` → `PrecomputedPage`
 
 マッピングを一度だけ構築します。結果をキャッシュし、リクエストごとに `servePrecomputed` を呼び出します。
-`preEncodeShuffled` の配列を注入する場合は、キャッシュ前に `page.rawHtml` を書き換えてください。
+必要な場合のみ、キャッシュ前に `page.rawHtml` を書き換えて高度な事前エンコード済みペイロードを注入できます。
 
 ```ts
 const page = await obfuscator.precomputeHtml(BASE_HTML, [".secret"]);
@@ -180,6 +182,7 @@ page.rawHtml = page.rawHtml
 ### `preEncodeShuffled(values, mapping, options?)`
 
 値の配列をシャッフル位置とデコイエントリ付きで事前エンコードします。
+これは低レベルのオプション機能です。通常のアプリ状態管理には各フレームワークの標準手法を推奨します。
 
 ## アダプタは何をしているか
 

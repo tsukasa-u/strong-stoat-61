@@ -5,10 +5,11 @@
  *   pnpm example:vue
  */
 
-import { createSSRApp, h } from "vue";
+import { createSSRApp } from "vue";
 import { renderToString } from "@vue/server-renderer";
-import { FontObfuscator, preEncodeShuffled } from "font-obfuscator";
+import { FontObfuscator } from "font-obfuscator";
 import { serveFetch } from "../../lib/nodeServer.ts";
+import App from "./App.vue";
 
 const FONT_URL =
   "https://raw.githubusercontent.com/google/fonts/main/ofl/notosansjp/NotoSansJP%5Bwght%5D.ttf";
@@ -25,32 +26,17 @@ const obfuscator = new FontObfuscator({
 const SELECTORS = [".secret"];
 
 async function baseHandler(req: Request): Promise<Response> {
-  const app = createSSRApp({
-    render() {
-      return h("div", { id: "app" }, [
-        h("h1", "Vue SSR example"),
-        h("p", { class: "secret" }, "このテキストは難読化されます。Hello World"),
-      ]);
-    },
-  });
+  const app = createSSRApp(App);
 
-  const body = await renderToString(app);
-  const css = "button{padding:.45rem .8rem;margin:.24rem;border:1px solid #d1d5db;border-radius:.45rem;background:#fff;color:#111827;font-size:.9rem;font-weight:600;cursor:pointer}button:hover{border-color:#9ca3af}button:active{background:#f3f4f6}";
-  const rawHtml = `<!doctype html><html lang="ja"><head><meta charset="utf-8" /><title>Vue SSR + Font Obfuscator</title><style>${css}</style></head><body style="min-height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;margin:0">${body}<div><button onclick="if(c<_pre.length-1)c++;el.textContent=_pre[_preIdx[c]]">Count</button><button onclick="c=0;el.textContent=_pre[_preIdx[0]]">Reset</button></div><p id="cnt" class="secret">0</p></body></html>`;
+  const appHtml = await renderToString(app);
+  const rawHtml = `<!doctype html><html lang="ja"><head><meta charset="utf-8" /><title>Vue SSR + Font Obfuscator</title></head><body>${appHtml}</body></html>`;
 
-  const pm = await obfuscator.getRotatingMapping(rawHtml);
-  const { encoded: preArr, indices: preIdx } = preEncodeShuffled(
-    Array.from({ length: 100 }, (_, i) => String(i)),
-    pm.mapping,
-    { variants: pm.variants },
-  );
-  const preScript = `<script>var _pre=${JSON.stringify(preArr)},_preIdx=${JSON.stringify(preIdx)},c=0,el=document.getElementById('cnt')<\/script>`;
-
-  let html = await obfuscator.serveWithMapping(rawHtml, SELECTORS, pm, {
+  const html = await obfuscator.obfuscateHtml(rawHtml, {
+    selectors: SELECTORS,
     pageKey: new URL(req.url).pathname,
     clientFingerprint: obfuscator.getClientFingerprint(req),
   });
-  html = html.replace("</body>", `${preScript}</body>`);
+
   return new Response(html, {
     headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
   });

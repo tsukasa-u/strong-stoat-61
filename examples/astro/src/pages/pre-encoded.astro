@@ -1,0 +1,22 @@
+---
+const title = "Astro Pre-encoded Example";
+---
+
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <title>{title}</title>
+  </head>
+  <body style="min-height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;margin:0">
+    <h1>Astro example</h1>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/counter">Counter</a>
+      <a href="/pre-encoded">Pre-encoded</a>
+    </nav>
+
+    <h2>3) 事前エンコード済み状態</h2>
+    <p class="secret">secure-state: c3</p>
+    <p>事前エンコード済み状態の難読化サンプルです。</p>
+  </body>
+</html>

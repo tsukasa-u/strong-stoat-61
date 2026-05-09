@@ -8,6 +8,7 @@
 import { Hono } from "hono";
 import { FontObfuscator, withHonoObfuscation } from "font-obfuscator";
 import { serveFetch } from "../../lib/nodeServer.ts";
+import { registerDemoRoutes } from "./src/routes/registerDemoRoutes.ts";
 
 const FONT_URL =
   "https://raw.githubusercontent.com/google/fonts/main/ofl/notosansjp/NotoSansJP%5Bwght%5D.ttf";
@@ -24,21 +25,7 @@ const obfuscator = new FontObfuscator({
 // ── base Hono app ──────────────────────────────────────────────────────────
 
 const app = new Hono();
-
-app.get("/", (c) => {
-  return c.html(`<!doctype html>
-<html lang="ja">
-<head>
-  <meta charset="utf-8" />
-  <title>Hono + Font Obfuscator</title>
-</head>
-<body>
-  <h1>Hono example</h1>
-  <p class="secret">このテキストは難読化されます。 Hello World</p>
-  <p class="plain">このテキストはそのまま表示されます。</p>
-</body>
-</html>`);
-});
+registerDemoRoutes(app);
 
 // ── wrap with obfuscation ──────────────────────────────────────────────────
 // withHonoObfuscation wraps a fetch-compatible handler, which matches Hono's

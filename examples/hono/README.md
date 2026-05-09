@@ -1,6 +1,10 @@
 # Hono Example
 
-Minimal Hono project layout.
+Hono example with route/view separation for obfuscation demos.
+
+- Routes: `src/routes/registerDemoRoutes.ts`
+- Views: `src/views/demoViews.tsx`
+- Supported pages: `/`, `/counter`, `/pre-encoded`
 
 ## Run
 

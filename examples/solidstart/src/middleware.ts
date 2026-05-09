@@ -1,5 +1,4 @@
 import { createMiddleware } from "@solidjs/start/middleware";
-import { preEncodeShuffled } from "font-obfuscator";
 import { obfuscator } from "./utils/obfuscator.ts";
 
 const SELECTORS = [".secret"];
@@ -51,15 +50,6 @@ export default createMiddleware({
         pageKey: new URL(event.request.url).pathname,
         clientFingerprint: obfuscator.getClientFingerprint(event.request),
       });
-
-      // Inject pre-encoded counter values (shuffled order) so COUNT stays obfuscated client-side.
-      const { encoded: preArr, indices: preIdx } = preEncodeShuffled(
-        Array.from({ length: 100 }, (_, i) => String(i)),
-        pm.mapping,
-        { variants: pm.variants },
-      );
-      const preScript = `<script>var _pre=${JSON.stringify(preArr)},_preIdx=${JSON.stringify(preIdx)},c=0,el=document.getElementById('cnt')<\/script>`;
-      result = result.replace("</body>", `${preScript}</body>`);
 
       response.body = result;
       const h = response.headers as any;

@@ -1,44 +1,26 @@
 /**
- * Remix adapter runnable example (Node)
+ * Remix runnable launcher.
  *
- * Run:
- *   pnpm example:remix
+ * Runs Remix with Vite dev server so routes are served from `app/routes/*`.
  */
 
-import { FontObfuscator, withRemixRequestHandlerObfuscation } from "font-obfuscator";
-import { serveFetch } from "../../lib/nodeServer.ts";
+import { spawn } from "node:child_process";
 
-const FONT_URL =
-  "https://raw.githubusercontent.com/google/fonts/main/ofl/notosansjp/NotoSansJP%5Bwght%5D.ttf";
+const child = spawn(
+  "pnpm",
+  ["--dir", "examples/remix", "exec", "remix", "vite:dev", "--host", "127.0.0.1", "--port", "8011"],
+  { stdio: "inherit" },
+);
 
-const obfuscator = new FontObfuscator({
-  fontUrl: FONT_URL,
-  fontRoutePrefix: "/_obf/font",
-  budgetPolicy: "adaptive",
-  variantAllocator: "frequency-weighted",
-  onBudgetDegrade: (e) =>
-    console.warn(`[font-obfuscator] variant shortfall: ${e.variantShortfall}/${e.totalChars} chars`),
+const shutdown = () => {
+  if (!child.killed) {
+    child.kill("SIGTERM");
+  }
+};
+
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
+
+child.on("exit", (code) => {
+  process.exit(code ?? 0);
 });
-
-function baseHandler(_req: Request): Response {
-  return new Response(
-    `<!doctype html>
-<html lang="ja">
-<head><meta charset="utf-8" /><title>Remix Adapter Example</title></head>
-<body>
-  <h1>withRemixRequestHandlerObfuscation</h1>
-  <p class="secret">このテキストは難読化されます。Hello World</p>
-  <p class="plain">このテキストは通常表示です。</p>
-</body>
-</html>`,
-    { headers: { "content-type": "text/html; charset=utf-8" } },
-  );
-}
-
-const handler = withRemixRequestHandlerObfuscation(baseHandler, obfuscator, {
-  selectors: [".secret"],
-  skipPathPatterns: [/^\/build\//, /^\/_data\//],
-});
-
-console.log("[remix-adapter-example] http://localhost:8011/");
-serveFetch(handler, 8011);

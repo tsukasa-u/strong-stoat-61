@@ -2,6 +2,10 @@
 /**
  * Generic Fetch adapter runnable example (JSX)
  *
+ * Note:
+ * This file demonstrates a custom JSX runtime in plain Fetch handlers.
+ * It is intentionally framework-agnostic and does not use React / Solid / Vue SSR.
+ *
  * Run:
  *   pnpm example:fetch:jsx
  */
@@ -64,10 +68,10 @@ function Page() {
     <html lang="ja">
       <head>
         <meta charSet="utf-8" />
-        <title>Fetch Adapter JSX Example</title>
+        <title>Fetch Adapter JSX Example (Custom JSX Runtime)</title>
       </head>
       <body>
-        <h1>withFetchObfuscation (JSX)</h1>
+        <h1>withFetchObfuscation (JSX, custom runtime)</h1>
         <p className="secret">このテキストは難読化されます。Hello World</p>
         <p className="plain">このテキストは通常表示です。</p>
       </body>

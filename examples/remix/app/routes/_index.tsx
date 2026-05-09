@@ -14,6 +14,11 @@ const btn: React.CSSProperties = {
 
 export default function IndexRoute() {
   const [count, setCount] = useState(0);
+  const [status, setStatus] = useState<"idle" | "working" | "done">("idle");
+  const [tags, setTags] = useState<string[]>(["alpha", "beta"]);
+  const [profile, setProfile] = useState({ name: "Aki", role: "editor" });
+  const [secureState, setSecureState] = useState({ encoded: ["a1", "b2", "c3", "d4"], indices: [2, 0, 3, 1], pos: 0 });
+  const secureValue = secureState.encoded[secureState.indices[secureState.pos]] ?? "";
   return (
     <main style={{ minHeight: "100vh", margin: 0, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center" }}>
       <h1>Remix example</h1>
@@ -23,6 +28,22 @@ export default function IndexRoute() {
         <button style={btn} onClick={() => setCount(0)}>Reset</button>
       </div>
       <p className="secret">{count}</p>
+      <div>
+        <button style={btn} onClick={() => setStatus("working")}>Start</button>
+        <button style={btn} onClick={() => setStatus("done")}>Done</button>
+      </div>
+      <p className="secret">status: {status}</p>
+      <div>
+        <button style={btn} onClick={() => setTags((v) => [...v, `tag-${v.length + 1}`])}>Add tag</button>
+        <button style={btn} onClick={() => setProfile((p) => ({ ...p, role: p.role === "editor" ? "admin" : "editor" }))}>Toggle role</button>
+      </div>
+      <p className="secret">tags: {tags.join(", ")}</p>
+      <p className="secret">profile: {profile.name} ({profile.role})</p>
+      <div>
+        <button style={btn} onClick={() => setSecureState((s) => ({ ...s, pos: Math.min(s.pos + 1, s.indices.length - 1) }))}>Next Secure</button>
+        <button style={btn} onClick={() => setSecureState((s) => ({ ...s, pos: 0 }))}>Reset Secure</button>
+      </div>
+      <p className="secret">secure-state: {secureValue}</p>
     </main>
   );
 }
