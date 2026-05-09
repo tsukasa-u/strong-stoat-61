@@ -1,9 +1,9 @@
 <script lang="ts">
-  let count = 0;
-  let status: "idle" | "working" | "done" = "idle";
-  let tags = ["alpha", "beta"];
-  let profile = { name: "Aki", role: "editor" };
-  let secure = { encoded: ["a1", "b2", "c3", "d4"], indices: [2, 0, 3, 1], pos: 0 };
+  let count = $state(0);
+  let status = $state<"idle" | "working" | "done">("idle");
+  let tags = $state<string[]>(["alpha", "beta"]);
+  let profile = $state({ name: "Aki", role: "editor" });
+  let secure = $state({ encoded: ["a1", "b2", "c3", "d4"], indices: [2, 0, 3, 1], pos: 0 });
 </script>
 
 <svelte:head>
@@ -20,32 +20,24 @@
   <h1>SvelteKit example</h1>
   <p class="secret">このテキストは難読化されます。Hello World</p>
   <div>
-    <!-- svelte-ignore a11y_consider_explicit_label -->
-    <button on:click={() => count++}>Count</button>
-    <!-- svelte-ignore a11y_consider_explicit_label -->
-    <button on:click={() => (count = 0)}>Reset</button>
+    <button onclick={() => count++}>Count</button>
+    <button onclick={() => (count = 0)}>Reset</button>
   </div>
   <p class="secret">{count}</p>
   <div>
-    <!-- svelte-ignore a11y_consider_explicit_label -->
-    <button on:click={() => (status = "working")}>Start</button>
-    <!-- svelte-ignore a11y_consider_explicit_label -->
-    <button on:click={() => (status = "done")}>Done</button>
+    <button onclick={() => (status = "working")}>Start</button>
+    <button onclick={() => (status = "done")}>Done</button>
   </div>
   <p class="secret">status: {status}</p>
   <div>
-    <!-- svelte-ignore a11y_consider_explicit_label -->
-    <button on:click={() => (tags = [...tags, `tag-${tags.length + 1}`])}>Add tag</button>
-    <!-- svelte-ignore a11y_consider_explicit_label -->
-    <button on:click={() => (profile = { ...profile, role: profile.role === "editor" ? "admin" : "editor" })}>Toggle role</button>
+    <button onclick={() => (tags = [...tags, `tag-${tags.length + 1}`])}>Add tag</button>
+    <button onclick={() => (profile = { ...profile, role: profile.role === "editor" ? "admin" : "editor" })}>Toggle role</button>
   </div>
   <p class="secret">tags: {tags.join(", ")}</p>
   <p class="secret">profile: {profile.name} ({profile.role})</p>
   <div>
-    <!-- svelte-ignore a11y_consider_explicit_label -->
-    <button on:click={() => (secure = { ...secure, pos: Math.min(secure.pos + 1, secure.indices.length - 1) })}>Next Secure</button>
-    <!-- svelte-ignore a11y_consider_explicit_label -->
-    <button on:click={() => (secure = { ...secure, pos: 0 })}>Reset Secure</button>
+    <button onclick={() => (secure = { ...secure, pos: Math.min(secure.pos + 1, secure.indices.length - 1) })}>Next Secure</button>
+    <button onclick={() => (secure = { ...secure, pos: 0 })}>Reset Secure</button>
   </div>
   <p class="secret">secure-state: {secure.encoded[secure.indices[secure.pos]]}</p>
 </div>

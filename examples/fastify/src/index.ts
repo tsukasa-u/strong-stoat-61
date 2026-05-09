@@ -11,7 +11,7 @@ const obfuscator = new FontObfuscator({
   fontRoutePrefix: "/_obf/font",
 });
 
-registerDemoRoutes(app, obfuscator, port);
+registerDemoRoutes(app, obfuscator);
 
 app.listen({ port, host: "127.0.0.1" }).then(() => {
   console.log(`[fastify-example] http://localhost:${port}/`);

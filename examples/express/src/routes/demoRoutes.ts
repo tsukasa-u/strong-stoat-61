@@ -1,22 +1,46 @@
-import type { Express } from "express";
+import type { Express, Request as ExpressRequest, Response as ExpressResponse } from "express";
 import type { FontObfuscator } from "font-obfuscator";
 import { renderDemoView } from "../views/demoViews.tsx";
 
 const SELECTORS = [".secret"];
 
-async function servePage(obfuscator: FontObfuscator, pathname: string, fingerprint: string): Promise<string> {
+/**
+ * Convert an Express request to a Fetch-API Request so library helpers
+ * (`maybeHandleFontRequest`, `getClientFingerprint`) can apply their own
+ * `trustedProxies` rules instead of us blindly trusting `x-forwarded-for`.
+ */
+function toFetchRequest(req: ExpressRequest): Request {
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(req.headers)) {
+    if (Array.isArray(value)) {
+      for (const v of value) headers.append(key, v);
+    } else if (typeof value === "string") {
+      headers.set(key, value);
+    }
+  }
+  // Fixed origin: only pathname/search are consumed by the library.
+  return new Request(`http://localhost${req.originalUrl}`, {
+    method: req.method,
+    headers,
+  });
+}
+
+async function servePage(
+  obfuscator: FontObfuscator,
+  pathname: string,
+  req: ExpressRequest,
+): Promise<string> {
   const baseHtml = renderDemoView(pathname);
   const page = await obfuscator.getRotatingPrecomputedPage(baseHtml, SELECTORS, pathname);
   return obfuscator.servePrecomputed(page, {
     pageKey: pathname,
-    clientFingerprint: fingerprint,
+    clientFingerprint: obfuscator.getClientFingerprint(toFetchRequest(req)),
   });
 }
 
 export function registerDemoRoutes(app: Express, obfuscator: FontObfuscator): void {
   app.get("/_obf/font/:token", async (req, res) => {
-    const requestUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
-    const fontResponse = await obfuscator.maybeHandleFontRequest(new Request(requestUrl));
+    const fontResponse = await obfuscator.maybeHandleFontRequest(toFetchRequest(req));
     if (!fontResponse) {
       res.status(404).send("Not Found");
       return;
@@ -24,17 +48,17 @@ export function registerDemoRoutes(app: Express, obfuscator: FontObfuscator): vo
 
     res.status(fontResponse.status);
     fontResponse.headers.forEach((value, key) => res.setHeader(key, value));
-    const body = new Uint8Array(await fontResponse.arrayBuffer());
-    res.send(Buffer.from(body));
+    res.send(Buffer.from(await fontResponse.arrayBuffer()));
   });
 
-  app.get(["/", "/counter", "/pre-encoded"], async (req, res) => {
-    const pathname = req.path;
-    const fingerprint = `${(req.headers["x-forwarded-for"] ?? "").toString().split(",")[0].trim()}|${req.headers["user-agent"] ?? ""}`;
-    const html = await servePage(obfuscator, pathname, fingerprint);
-
+  const pageHandler = async (req: ExpressRequest, res: ExpressResponse) => {
+    const html = await servePage(obfuscator, req.path, req);
     res.setHeader("content-type", "text/html; charset=utf-8");
     res.setHeader("cache-control", "no-store");
     res.send(html);
-  });
+  };
+
+  app.get("/", pageHandler);
+  app.get("/counter", pageHandler);
+  app.get("/pre-encoded", pageHandler);
 }

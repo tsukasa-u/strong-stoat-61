@@ -1,23 +1,46 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { FontObfuscator } from "font-obfuscator";
 import { renderDemoView } from "../views/demoViews.tsx";
 
 const SELECTORS = [".secret"];
 
-async function servePage(obfuscator: FontObfuscator, pathname: string, fingerprint: string): Promise<string> {
+/**
+ * Convert a Fastify request to a Fetch-API Request so library helpers
+ * (`maybeHandleFontRequest`, `getClientFingerprint`) can apply their own
+ * `trustedProxies` rules instead of us blindly trusting `x-forwarded-for`.
+ */
+function toFetchRequest(req: FastifyRequest): Request {
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(req.headers)) {
+    if (Array.isArray(value)) {
+      for (const v of value) headers.append(key, v);
+    } else if (typeof value === "string") {
+      headers.set(key, value);
+    }
+  }
+  // Fixed origin: only pathname/search are consumed by the library.
+  return new Request(`http://localhost${req.url}`, {
+    method: req.method,
+    headers,
+  });
+}
+
+async function servePage(
+  obfuscator: FontObfuscator,
+  pathname: string,
+  req: FastifyRequest,
+): Promise<string> {
   const baseHtml = renderDemoView(pathname);
   const page = await obfuscator.getRotatingPrecomputedPage(baseHtml, SELECTORS, pathname);
   return obfuscator.servePrecomputed(page, {
     pageKey: pathname,
-    clientFingerprint: fingerprint,
+    clientFingerprint: obfuscator.getClientFingerprint(toFetchRequest(req)),
   });
 }
 
-export function registerDemoRoutes(app: FastifyInstance, obfuscator: FontObfuscator, port: number): void {
+export function registerDemoRoutes(app: FastifyInstance, obfuscator: FontObfuscator): void {
   app.get("/_obf/font/:token", async (request, reply) => {
-    const fontResponse = await obfuscator.maybeHandleFontRequest(
-      new Request(`http://localhost:${port}${request.url}`),
-    );
+    const fontResponse = await obfuscator.maybeHandleFontRequest(toFetchRequest(request));
     if (!fontResponse) {
       reply.code(404).send("Not Found");
       return;
@@ -25,18 +48,15 @@ export function registerDemoRoutes(app: FastifyInstance, obfuscator: FontObfusca
 
     reply.code(fontResponse.status);
     fontResponse.headers.forEach((value, key) => reply.header(key, value));
-    const body = new Uint8Array(await fontResponse.arrayBuffer());
-    reply.send(Buffer.from(body));
+    return reply.send(Buffer.from(await fontResponse.arrayBuffer()));
   });
 
-  const pageHandler = async (request: any, reply: any) => {
+  const pageHandler = async (request: FastifyRequest, reply: FastifyReply) => {
     const pathname = request.url.split("?")[0] || "/";
-    const fingerprint = `${(request.headers["x-forwarded-for"] ?? "").toString().split(",")[0].trim()}|${request.headers["user-agent"] ?? ""}`;
-    const html = await servePage(obfuscator, pathname, fingerprint);
-
+    const html = await servePage(obfuscator, pathname, request);
     reply.header("content-type", "text/html; charset=utf-8");
     reply.header("cache-control", "no-store");
-    reply.send(html);
+    return reply.send(html);
   };
 
   app.get("/", pageHandler);
