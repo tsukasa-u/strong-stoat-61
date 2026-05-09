@@ -1,4 +1,5 @@
 import { createMiddleware } from "@solidjs/start/middleware";
+import { removeResponseHeader, setResponseHeader } from "vinxi/http";
 import { obfuscator } from "./utils/obfuscator.ts";
 
 const SELECTORS = [".secret"];
@@ -52,20 +53,9 @@ export default createMiddleware({
       });
 
       response.body = result;
-      const h = response.headers as any;
-      if (h) {
-        if (typeof h.set === "function") {
-          h.set("cache-control", "no-store");
-          if (typeof h.delete === "function") {
-            h.delete("content-length");
-            h.delete("Content-Length");
-          }
-        } else {
-          h["cache-control"] = "no-store";
-          delete h["content-length"];
-          delete h["Content-Length"];
-        }
-      }
+      setResponseHeader(event.nativeEvent, "cache-control", "no-store");
+      removeResponseHeader(event.nativeEvent, "content-length");
+      removeResponseHeader(event.nativeEvent, "Content-Length");
     },
   ],
 });

@@ -1,3 +1,4 @@
+import { toWebRequest } from "vinxi/http";
 import { obfuscator } from "./utils/obfuscator.ts";
 
 const SELECTORS = [".secret"];
@@ -12,27 +13,17 @@ export default defineNitroPlugin((nitroApp) => {
     if (!String(contentType).toLowerCase().includes("text/html")) return;
 
     const pm = await obfuscator.getRotatingMapping(response.body);
-    const ip = (event.headers.get?.("x-forwarded-for") ?? "").split(",")[0].trim();
-    const ua = event.headers.get?.("user-agent") ?? "";
+    const fetchReq = toWebRequest(event as Parameters<typeof toWebRequest>[0]);
 
     response.body = await obfuscator.serveWithMapping(response.body, SELECTORS, pm, {
       pageKey: event.path,
-      clientFingerprint: `${ip}|${ua}`,
+      clientFingerprint: obfuscator.getClientFingerprint(fetchReq),
     });
 
-    const h = response.headers as any;
-    if (h) {
-      if (typeof h.set === "function") {
-        h.set("cache-control", "no-store");
-        if (typeof h.delete === "function") {
-          h.delete("content-length");
-          h.delete("Content-Length");
-        }
-      } else {
-        delete h["content-length"];
-        delete h["Content-Length"];
-        h["cache-control"] = "no-store";
-      }
+    if (response.headers) {
+      response.headers["cache-control"] = "no-store";
+      delete response.headers["content-length"];
+      delete response.headers["Content-Length"];
     }
   });
 });
