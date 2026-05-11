@@ -25,27 +25,31 @@ export default function HomePage() {
     <main style={{ minHeight: "100vh", margin: 0, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center" }}>
       <h1>Next example</h1>
       <p>Open <a href="/protected">/protected</a> to see the obfuscated HTML route.</p>
+      <p>
+        Client-side state updates below are intentionally plain text.
+        Only server-rendered HTML transformed by the adapter is obfuscated.
+      </p>
       <div>
         <button style={btn} onClick={() => setCount((c) => c + 1)}>Count</button>
         <button style={btn} onClick={() => setCount(0)}>Reset</button>
       </div>
-      <p className="secret">{count}</p>
+      <p>{count}</p>
       <div>
         <button style={btn} onClick={() => setStatus("working")}>Start</button>
         <button style={btn} onClick={() => setStatus("done")}>Done</button>
       </div>
-      <p className="secret">status: {status}</p>
+      <p>status: {status}</p>
       <div>
         <button style={btn} onClick={() => setTags((v) => [...v, `tag-${v.length + 1}`])}>Add tag</button>
         <button style={btn} onClick={() => setProfile((p) => ({ ...p, role: p.role === "editor" ? "admin" : "editor" }))}>Toggle role</button>
       </div>
-      <p className="secret">tags: {tags.join(", ")}</p>
-      <p className="secret">profile: {profile.name} ({profile.role})</p>
+      <p>tags: {tags.join(", ")}</p>
+      <p>profile: {profile.name} ({profile.role})</p>
       <div>
         <button style={btn} onClick={() => setSecureState((s) => ({ ...s, pos: Math.min(s.pos + 1, s.indices.length - 1) }))}>Next Secure</button>
         <button style={btn} onClick={() => setSecureState((s) => ({ ...s, pos: 0 }))}>Reset Secure</button>
       </div>
-      <p className="secret">secure-state: {secureValue}</p>
+      <p>secure-state: {secureValue}</p>
     </main>
   );
 }

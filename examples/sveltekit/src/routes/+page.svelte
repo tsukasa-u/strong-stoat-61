@@ -19,25 +19,26 @@
 <div style="min-height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center">
   <h1>SvelteKit example</h1>
   <p class="secret">このテキストは難読化されます。Hello World</p>
+  <p>以下のクライアント状態は平文表示です。hooks.server で変換したHTMLのみ難読化されます。</p>
   <div>
     <button onclick={() => count++}>Count</button>
     <button onclick={() => (count = 0)}>Reset</button>
   </div>
-  <p class="secret">{count}</p>
+  <p>{count}</p>
   <div>
     <button onclick={() => (status = "working")}>Start</button>
     <button onclick={() => (status = "done")}>Done</button>
   </div>
-  <p class="secret">status: {status}</p>
+  <p>status: {status}</p>
   <div>
     <button onclick={() => (tags = [...tags, `tag-${tags.length + 1}`])}>Add tag</button>
     <button onclick={() => (profile = { ...profile, role: profile.role === "editor" ? "admin" : "editor" })}>Toggle role</button>
   </div>
-  <p class="secret">tags: {tags.join(", ")}</p>
-  <p class="secret">profile: {profile.name} ({profile.role})</p>
+  <p>tags: {tags.join(", ")}</p>
+  <p>profile: {profile.name} ({profile.role})</p>
   <div>
     <button onclick={() => (secure = { ...secure, pos: Math.min(secure.pos + 1, secure.indices.length - 1) })}>Next Secure</button>
     <button onclick={() => (secure = { ...secure, pos: 0 })}>Reset Secure</button>
   </div>
-  <p class="secret">secure-state: {secure.encoded[secure.indices[secure.pos]]}</p>
+  <p>secure-state: {secure.encoded[secure.indices[secure.pos]]}</p>
 </div>

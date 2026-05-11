@@ -30,6 +30,9 @@ export default function Home() {
     <main style={{ "min-height": "100vh", margin: 0, display: "flex", "flex-direction": "column", "justify-content": "center", "align-items": "center", "text-align": "center" }}>
       <h1>SolidStart example</h1>
       <p class="secret">このテキストは難読化されます。Hello World</p>
+      <p>
+        以下のクライアント状態は平文表示です。middleware が返却HTMLを変換した部分のみ難読化されます。
+      </p>
 
       <h2>1) 通常文字列の難読化</h2>
       <p class="secret">通常文字列も middleware で難読化されます。</p>
@@ -39,13 +42,13 @@ export default function Home() {
         <button style={btn} onClick={() => setCount((c) => c + 1)}>Count</button>
         <button style={btn} onClick={() => setCount(0)}>Reset</button>
       </div>
-      <p class="secret">{count()}</p>
+      <p>{count()}</p>
 
       <div>
         <button style={btn} onClick={() => setStatus("working")}>Start</button>
         <button style={btn} onClick={() => setStatus("done")}>Done</button>
       </div>
-      <p class="secret">status: {status()}</p>
+      <p>status: {status()}</p>
       <div>
         <button style={btn} onClick={() => setTags((v) => [...v, `tag-${v.length + 1}`])}>Add tag</button>
         <button
@@ -55,8 +58,8 @@ export default function Home() {
           Toggle role
         </button>
       </div>
-      <p class="secret">tags: {tags().join(", ")}</p>
-      <p class="secret">profile: {profile().name} ({profile().role})</p>
+      <p>tags: {tags().join(", ")}</p>
+      <p>profile: {profile().name} ({profile().role})</p>
 
       <h2>3) 事前難読化状態</h2>
       <div>
@@ -68,7 +71,7 @@ export default function Home() {
         </button>
         <button style={btn} onClick={() => setSecure("pos", 0)}>Reset Secure</button>
       </div>
-      <p class="secret">secure-state: {secureValue()}</p>
+      <p>secure-state: {secureValue()}</p>
     </main>
   );
 }

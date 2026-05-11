@@ -9,7 +9,14 @@ import { spawn } from "node:child_process";
 const child = spawn(
   "pnpm",
   ["--dir", "examples/remix", "exec", "remix", "vite:dev", "--host", "127.0.0.1", "--port", "8011"],
-  { stdio: "inherit" },
+  {
+    stdio: "inherit",
+    env: {
+      ...process.env,
+      CHOKIDAR_USEPOLLING: process.env.CHOKIDAR_USEPOLLING ?? "1",
+      WATCHPACK_POLLING: process.env.WATCHPACK_POLLING ?? "true",
+    },
+  },
 );
 
 const shutdown = () => {

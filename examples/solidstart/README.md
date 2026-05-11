@@ -19,4 +19,5 @@ pnpm install
 pnpm dev
 ```
 
-If you want full HTML response obfuscation in SolidStart, the next step is wiring the adapter into the server rendering pipeline used by your chosen SolidStart deployment target.
+This example already wires response transformation in `src/middleware.ts`.
+Only server-rendered HTML transformed by middleware is obfuscated; client-side state updates after hydration are shown as plain text.

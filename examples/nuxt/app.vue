@@ -11,28 +11,29 @@ const secure = ref({ encoded: ["a1", "b2", "c3", "d4"], indices: [2, 0, 3, 1], p
 <template>
   <main style="min-height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center">
     <h1>Nuxt example</h1>
-    <p class="secret">このテキストは難読化されます。Hello World</p>
+    <p>Open <a href="/protected">/protected</a> to see the obfuscated HTML route.</p>
+    <p>以下のクライアント状態は平文表示です。adapter が変換したサーバーHTMLのみ難読化されます。</p>
     <div>
       <button @click="count++">Count</button>
       <button @click="count = 0">Reset</button>
     </div>
-    <p class="secret">{{ count }}</p>
+    <p>{{ count }}</p>
     <div>
       <button @click="status = 'working'">Start</button>
       <button @click="status = 'done'">Done</button>
     </div>
-    <p class="secret">status: {{ status }}</p>
+    <p>status: {{ status }}</p>
     <div>
       <button @click="tags = [...tags, `tag-${tags.length + 1}`]">Add tag</button>
       <button @click="profile = { ...profile, role: profile.role === 'editor' ? 'admin' : 'editor' }">Toggle role</button>
     </div>
-    <p class="secret">tags: {{ tags.join(', ') }}</p>
-    <p class="secret">profile: {{ profile.name }} ({{ profile.role }})</p>
+    <p>tags: {{ tags.join(', ') }}</p>
+    <p>profile: {{ profile.name }} ({{ profile.role }})</p>
     <div>
       <button @click="secure = { ...secure, pos: Math.min(secure.pos + 1, secure.indices.length - 1) }">Next Secure</button>
       <button @click="secure = { ...secure, pos: 0 }">Reset Secure</button>
     </div>
-    <p class="secret">secure-state: {{ secure.encoded[secure.indices[secure.pos]] }}</p>
+    <p>secure-state: {{ secure.encoded[secure.indices[secure.pos]] }}</p>
   </main>
 </template>
 

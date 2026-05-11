@@ -9,12 +9,21 @@ export default defineNitroPlugin((nitroApp) => {
     if (!String(contentType).toLowerCase().includes('text/html')) return;
 
     const pm = await obfuscator.getRotatingMapping(response.body);
-    const ip = (event.headers.get?.('x-forwarded-for') ?? '').split(',')[0].trim();
+    const fpHeaders = new Headers();
+    const xff = event.headers.get?.('x-forwarded-for') ?? '';
+    const cfIp = event.headers.get?.('cf-connecting-ip') ?? '';
     const ua = event.headers.get?.('user-agent') ?? '';
+    if (xff) fpHeaders.set('x-forwarded-for', xff);
+    if (cfIp) fpHeaders.set('cf-connecting-ip', cfIp);
+    if (ua) fpHeaders.set('user-agent', ua);
+    const fpRequest = new Request(`http://localhost${event.path || '/'}`, {
+      method: 'GET',
+      headers: fpHeaders,
+    });
 
     response.body = await obfuscator.serveWithMapping(response.body, SELECTORS, pm, {
       pageKey: event.path,
-      clientFingerprint: `${ip}|${ua}`,
+      clientFingerprint: obfuscator.getClientFingerprint(fpRequest),
     });
 
     const h = response.headers as any;

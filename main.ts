@@ -521,8 +521,15 @@ function basePageHtml(): string {
       line-height: 1.5;
     }
 
+    .dynamic-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1rem;
+    }
+
     @media (max-width: 850px) {
       .cards-grid { grid-template-columns: 1fr; }
+      .dynamic-grid { grid-template-columns: 1fr; }
       .detail-grid { grid-template-columns: 1fr; }
       .proof-grid { grid-template-columns: 1fr; }
       body { padding: 1rem 0.85rem 1.8rem; }
@@ -611,10 +618,55 @@ function basePageHtml(): string {
 
     </div>
 
+    <div class="dynamic-grid">
+
+      <article class="card">
+        <div class="card-head">
+          <div class="tag">selector: .obf-dynamic</div>
+          <span class="badge badge-ok" data-i18n="targetBadge"></span>
+        </div>
+        <p class="dynamic-note" data-i18n="counterNote"></p>
+        <div id="counter-display" style="font-size:1.6rem;font-weight:700;min-height:2.4rem;margin:0.5rem 0 0;">
+          <span id="count-0" class="obf-dynamic">0</span>
+          <span id="count-1" class="obf-dynamic" style="display:none">1</span>
+          <span id="count-2" class="obf-dynamic" style="display:none">2</span>
+          <span id="count-3" class="obf-dynamic" style="display:none">3</span>
+          <span id="count-4" class="obf-dynamic" style="display:none">4</span>
+          <span id="count-5" class="obf-dynamic" style="display:none">5</span>
+          <span id="count-6" class="obf-dynamic" style="display:none">6</span>
+          <span id="count-7" class="obf-dynamic" style="display:none">7</span>
+          <span id="count-8" class="obf-dynamic" style="display:none">8</span>
+          <span id="count-9" class="obf-dynamic" style="display:none">9</span>
+        </div>
+        <div class="copy-demo-row">
+          <button id="btn-count-up" type="button" class="btn-sm" data-i18n="countUpBtn"></button>
+          <button id="btn-count-reset" type="button" class="btn-sm btn-ghost" data-i18n="countResetBtn"></button>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="card-head">
+          <div class="tag">selector: .obf-dynamic</div>
+          <span class="badge badge-ok" data-i18n="targetBadge"></span>
+        </div>
+        <p class="dynamic-note" data-i18n="statusNote"></p>
+        <div id="status-display" style="font-size:1.1rem;font-weight:600;min-height:2.4rem;margin:0.5rem 0 0;">
+          <span id="status-idle" class="obf-dynamic">idle</span>
+          <span id="status-working" class="obf-dynamic" style="display:none">working</span>
+          <span id="status-done" class="obf-dynamic" style="display:none">done</span>
+        </div>
+        <div class="copy-demo-row">
+          <button id="btn-status-working" type="button" class="btn-sm" data-i18n="statusStartBtn"></button>
+          <button id="btn-status-done" type="button" class="btn-sm" data-i18n="statusDoneBtn"></button>
+          <button id="btn-status-reset" type="button" class="btn-sm btn-ghost" data-i18n="statusResetBtn"></button>
+        </div>
+      </article>
+
+    </div>
+
     <section class="inspect">
       <div class="inspect-head">
         <h2 class="inspect-title" data-i18n="inspectorTitle"></h2>
-        <button id="refresh-debug" type="button" data-i18n="refreshButton"></button>
       </div>
       <p class="inspect-note" data-i18n="inspectorNote"></p>
       <div class="detail-grid">
@@ -693,12 +745,17 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
         usageTitle: "導入側コード例",
         frameworkTitle: "主要フレームワーク対応",
         inspectorTitle: "仕組みを 3 ステップで確認する",
-        inspectorNote: "保護済みテキストの「元のHTML」→「DOM上の難読化コード」→「ブラウザ描画」を並べて確認できます。",
-        refreshButton: "再計測",
-        detailSourceHtml: "① 元のHTML（サーバーが送信するコード）",
+        inspectorNote: "保護済み要素の現在のDOM・難読化コード・描画結果を並べて確認できます。",
+        counterNote: "ボタン操作で値が変わっても DOM に平文の数値は書き込まれません。値はサーバーサイドで事前に難読化済みです。",
+        countUpBtn: "＋1",
+        countResetBtn: "リセット",
+        statusNote: "状態の切り替えは難読化済み要素の表示切替のみ。平文の文字列が DOM に現れることはありません。",
+        statusStartBtn: "Start",
+        statusDoneBtn: "Done",
+        statusResetBtn: "Reset",
+        detailSourceHtml: "① 配布HTML（難読化後のレスポンス）",
         detailDomText: "② DOM内テキスト（難読化済み PUA 文字コード）",
         detailRendered: "③ ブラウザ描画（人間には正しく読める）",
-        redactedSource: "保護対象テキストは配布ソースから除外されています",
       },
       en: {
         title: "Font Obfuscator Library",
@@ -721,12 +778,17 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
         usageTitle: "Integration Example",
         frameworkTitle: "Major Framework Adapters",
         inspectorTitle: "See how it works in 3 steps",
-        inspectorNote: "For each protected selector: original HTML source → obfuscated DOM text → browser render.",
-        refreshButton: "Refresh",
-        detailSourceHtml: "① Original HTML (sent from server)",
+        inspectorNote: "Compare the current DOM, obfuscated text, and rendered output for protected elements.",
+        counterNote: "Clicking never writes plaintext digits to the DOM. All values are pre-obfuscated server-side.",
+        countUpBtn: "+1",
+        countResetBtn: "Reset",
+        statusNote: "State transitions only toggle visibility. No plaintext string is ever written to the DOM.",
+        statusStartBtn: "Start",
+        statusDoneBtn: "Done",
+        statusResetBtn: "Reset",
+        detailSourceHtml: "① Delivered HTML (obfuscated response)",
         detailDomText: "② DOM text (obfuscated PUA codes)",
         detailRendered: "③ Browser render (human-readable)",
-        redactedSource: "Protected text is not shipped in distributable i18n/source payloads",
       },
     };
 
@@ -771,21 +833,19 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
         .join("\\n---\\n");
     }
 
-    function sourceTextForSelector(selector) {
-      const t = i18n[currentLang];
-      if (selector === "#secret") return "[" + t.redactedSource + "]";
-      if (selector === ".obf-target") return "[" + t.redactedSource + "]";
-
-      return "";
-    }
-
     function sourceHtmlForSelector(selector) {
-      const text = sourceTextForSelector(selector);
-      const chunks = text.split("\\n---\\n").filter((s) => s.length > 0);
       if (selector === "#secret") {
-        return "<p id='secret'>" + (chunks[0] || "") + "</p>";
+        return "<p id='secret'>" + escapeCodePoints(collectSelectorText("#secret")) + "</p>";
       }
-      return chunks.map((line) => "<p class='obf-target'>" + line + "</p>").join("\\n");
+      if (selector === ".obf-target") {
+        return Array.from(document.querySelectorAll(".obf-target"))
+          .map((el) => {
+            const id = el.id ? " id='" + el.id + "'" : "";
+            return "<p" + id + " class='obf-target'>" + escapeCodePoints((el.textContent || "").trim()) + "</p>";
+          })
+          .join("\n");
+      }
+      return "";
     }
 
     function syncRenderPreview(selector, outputId) {
@@ -863,8 +923,6 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
     document.getElementById("lang-ja")?.addEventListener("click", () => applyLanguage("ja"));
     document.getElementById("lang-en")?.addEventListener("click", () => applyLanguage("en"));
 
-    document.getElementById("refresh-debug")?.addEventListener("click", refreshInspector);
-
     function showCopyResult(resultContainerId, resultTextId, text) {
       const container = document.getElementById(resultContainerId);
       const pre = document.getElementById(resultTextId);
@@ -887,6 +945,40 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
       showCopyResult("copy-result-secret", "copy-result-secret-text", text);
     });
 
+    var _countVal = 0;
+    var _COUNT_MAX = 9;
+    function _showCount(n) {
+      for (var i = 0; i <= _COUNT_MAX; i++) {
+        var el = document.getElementById("count-" + i);
+        if (el) el.style.display = i === n ? "" : "none";
+      }
+    }
+    document.getElementById("btn-count-up")?.addEventListener("click", function() {
+      _countVal = Math.min(_countVal + 1, _COUNT_MAX);
+      _showCount(_countVal);
+    });
+    document.getElementById("btn-count-reset")?.addEventListener("click", function() {
+      _countVal = 0;
+      _showCount(0);
+    });
+
+    var _statusStates = ["idle", "working", "done"];
+    function _showStatus(s) {
+      _statusStates.forEach(function(st) {
+        var el = document.getElementById("status-" + st);
+        if (el) el.style.display = st === s ? "" : "none";
+      });
+    }
+    document.getElementById("btn-status-working")?.addEventListener("click", function() {
+      _showStatus("working");
+    });
+    document.getElementById("btn-status-done")?.addEventListener("click", function() {
+      _showStatus("done");
+    });
+    document.getElementById("btn-status-reset")?.addEventListener("click", function() {
+      _showStatus("idle");
+    });
+
     applyLanguage("ja");
   </script>
 </body>
@@ -897,7 +989,7 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
 // Mapping rotates every 2 minutes (library default) to limit the window
 // during which a captured font file remains exploitable.
 const PAGE_HTML = basePageHtml();
-const PAGE_SELECTORS = [".obf-target", "#secret"];
+const PAGE_SELECTORS = [".obf-target", "#secret", ".obf-dynamic"];
 
 // Warm up source-font fetch/parse before serving traffic to reduce first-hit tofu risk.
 const prewarmPromise = obfuscator.precomputeMapping(PAGE_HTML).then(() => undefined).catch(() => undefined);
