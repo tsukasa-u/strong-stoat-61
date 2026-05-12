@@ -48,7 +48,7 @@ if (fontRes) return fontRes;
 
 - 機密性のあるサーバー描画テキストだけを `selectors` で指定
 - 通常のアプリ状態はフレームワーク標準の状態管理で扱う
-- hydration後のクライアント更新を難読化保証として扱わない
+- hydration後や client-side DOM 更新後のクライアント表示を難読化保証として扱わない
 
 ## 主要API
 
@@ -77,10 +77,9 @@ if (fontRes) return fontRes;
 
 [examples/README.ja.md](examples/README.ja.md) を参照してください。
 
-hydration前提フレームワーク（Next/Nuxt/Remix）では:
-
-- `/`: インタラクティブ状態管理デモ
-- `/protected`: 難読化HTML確認デモ
+- Next/Nuxt/Remix は `/` をインタラクティブデモ、`/protected` を難読化HTML確認に分離しています
+- Astro は `/` を client-side DOM 更新デモ、`/counter` と `/pre-encoded` を難読化HTML確認に分離しています
+- Vue サンプルは SSR-only です
 
 ## ローカル検証
 

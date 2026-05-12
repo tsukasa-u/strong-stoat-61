@@ -34,7 +34,8 @@ pnpm exec tsx scripts/playwright-browser-test.ts
 
 難読化は middleware / adapter が変換したサーバーHTMLに適用されます。
 
-hydration前提フレームワーク（Next/Nuxt/Remix）では:
+hydration や client-side DOM 更新がある場合、その後の再描画は難読化保証の外です。
 
-- `/` はインタラクティブ状態管理デモ
-- `/protected` は難読化HTML確認デモ
+- Next/Nuxt/Remix の `/` はインタラクティブ状態管理デモ、`/protected` は難読化HTML確認デモ
+- Astro の `/` は client-side DOM 更新デモ、`/counter` と `/pre-encoded` は難読化HTML確認デモ
+- Vue サンプルは SSR-only で、クライアント hydration は行いません

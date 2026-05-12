@@ -48,7 +48,7 @@ if (fontRes) return fontRes;
 
 - Obfuscate only sensitive server-rendered text (minimal selector scope).
 - Keep normal app state in framework-native state management.
-- Do not treat hydration-managed client updates as obfuscation guarantees.
+- Do not treat hydration-managed or client-side DOM updates as obfuscation guarantees.
 
 ## Core APIs
 
@@ -78,10 +78,9 @@ if (fontRes) return fontRes;
 
 See [examples/README.md](examples/README.md).
 
-For hydration-based frameworks (Next/Nuxt/Remix), examples separate:
-
-- `/`: interactive UI/state demo
-- `/protected`: obfuscated HTML demo
+- Next/Nuxt/Remix separate `/` interactive UI/state demos from `/protected` obfuscated HTML demos.
+- Astro separates `/` client-side DOM updates from `/counter` and `/pre-encoded` obfuscated HTML demos.
+- The Vue sample is SSR-only.
 
 ## Local Verification
 

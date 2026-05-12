@@ -34,7 +34,8 @@ pnpm exec tsx scripts/playwright-browser-test.ts
 
 Obfuscation applies to server-rendered HTML transformed by middleware/adapters.
 
-For hydration-based frameworks (Next/Nuxt/Remix):
+When hydration or client-side DOM updates happen after the initial response, those updates are outside the server-side obfuscation guarantee.
 
-- `/` is interactive UI state demo
-- `/protected` is obfuscated HTML demo
+- Next/Nuxt/Remix: `/` is the interactive UI/state demo and `/protected` is the obfuscated HTML demo
+- Astro: `/` is the client-side DOM update demo, while `/counter` and `/pre-encoded` are obfuscated HTML demos
+- Vue: this sample is SSR-only and does not hydrate client state
