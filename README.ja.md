@@ -58,6 +58,23 @@ if (fontRes) return fontRes;
 - `precomputeHtml()` + `servePrecomputed()`（テンプレートキャッシュ向け）
 - `precomputeMapping()` + `serveWithMapping()`（動的SSR向け）
 
+## PUA容量モード
+
+`FontObfuscator` は `puaPlaneMode` で PUA の使用範囲を選べます。
+
+- `bmp`（既定）: BMP PUA のみ（6400）
+- `bmp+supplementary`: 補助PUA（Plane 15/16）を含む（137468）
+
+```ts
+const obfuscator = new FontObfuscator({
+  fontUrl: "https://.../NotoSansJP[wght].ttf",
+  fontRoutePrefix: "/_obf/font",
+  puaPlaneMode: "bmp+supplementary",
+});
+```
+
+補助PUAは実験的オプションです。対象デバイスで表示検証してから本番投入してください。
+
 ## アダプタ
 
 - 汎用Fetch: `withFetchObfuscation`, `obfuscateHtmlResponse`

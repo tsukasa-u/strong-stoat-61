@@ -39,3 +39,31 @@ When hydration or client-side DOM updates happen after the initial response, tho
 - Next/Nuxt/Remix: `/` is the interactive UI/state demo and `/protected` is the obfuscated HTML demo
 - Astro: `/` is the client-side DOM update demo, while `/counter` and `/pre-encoded` are obfuscated HTML demos
 - Vue: this sample is SSR-only and does not hydrate client state
+
+## Enabling Supplementary PUA
+
+Examples use the default `puaPlaneMode: "bmp"` (6400 slots).
+If your character set is large and you hit PUA capacity limits, set `puaPlaneMode: "bmp+supplementary"` (137468 slots) where each example creates `FontObfuscator`.
+
+```ts
+const obfuscator = new FontObfuscator({
+	fontUrl: "https://.../NotoSansJP[wght].ttf",
+	fontRoutePrefix: "/_obf/font",
+	puaPlaneMode: "bmp+supplementary",
+});
+```
+
+Main integration points:
+
+- Next: `next/app/protected/route.ts`
+- Nuxt: `nuxt/server/utils/obfuscator.ts`
+- Remix: `remix/app/obfuscator.server.ts`
+- SvelteKit: `sveltekit/src/hooks.server.ts`
+- SolidStart: `solidstart/src/utils/obfuscator.ts`
+- Astro: `astro/src/middleware.ts`
+- Vue: `vue/main.ts`
+- Express: `express/src/index.ts`
+- Fastify: `fastify/src/index.ts`
+- Hono: `hono/src/index.ts`
+
+Supplementary mode is experimental. Validate rendering on target browsers before production rollout.

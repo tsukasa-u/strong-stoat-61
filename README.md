@@ -58,6 +58,23 @@ if (fontRes) return fontRes;
 - `precomputeHtml()` + `servePrecomputed()` for cached templates
 - `precomputeMapping()` + `serveWithMapping()` for dynamic SSR HTML
 
+## PUA Capacity Modes
+
+`FontObfuscator` supports `puaPlaneMode` to choose PUA pool capacity.
+
+- `bmp` (default): BMP PUA only (6400)
+- `bmp+supplementary`: BMP + Supplementary PUA Plane 15/16 (137468)
+
+```ts
+const obfuscator = new FontObfuscator({
+  fontUrl: "https://.../NotoSansJP[wght].ttf",
+  fontRoutePrefix: "/_obf/font",
+  puaPlaneMode: "bmp+supplementary",
+});
+```
+
+Supplementary mode is experimental. Validate rendering on your target devices before production.
+
 ## Adapter Helpers
 
 - Generic Fetch: `withFetchObfuscation`, `obfuscateHtmlResponse`
