@@ -1,6 +1,9 @@
 export {
   FontObfuscator,
   encodeText,
+  obfuscateDictionary,
+  obfuscateI18nDictionary,
+  obfuscateStringLeaves,
   preEncodeShuffled,
   type BudgetPolicy,
   type VariantAllocator,

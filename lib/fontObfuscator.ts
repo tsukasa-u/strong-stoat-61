@@ -1249,6 +1249,103 @@ export function encodeText(
 }
 
 /**
+ * Obfuscate all string values in a flat dictionary while preserving keys.
+ *
+ * @example
+ * const obfDict = obfuscateDictionary(i18n.en, pm.mapping, {
+ *   variants: pm.variants,
+ *   variantSeed: pm.seed,
+ * });
+ */
+export function obfuscateDictionary<T extends Record<string, string>>(
+  dict: T,
+  mapping: Record<string, number>,
+  options?: { variants?: Record<string, number[]>; variantSeed?: number },
+): T {
+  const out = {} as T;
+  for (const key of Object.keys(dict) as Array<keyof T>) {
+    out[key] = encodeText(dict[key], mapping, options);
+  }
+  return out;
+}
+
+/**
+ * Obfuscate nested i18n dictionaries (e.g. `{ ja: {...}, en: {...} }`) while
+ * preserving language and message keys.
+ *
+ * By default each language uses a derived seed (`variantSeed ^ hash(lang)`) so
+ * variant selection differs across languages but stays deterministic per build.
+ */
+export function obfuscateI18nDictionary<T extends Record<string, Record<string, string>>>(
+  dictionaries: T,
+  mapping: Record<string, number>,
+  options?: { variants?: Record<string, number[]>; variantSeed?: number },
+): T {
+  const out = {} as T;
+  for (const lang of Object.keys(dictionaries) as Array<keyof T>) {
+    const langSeed =
+      options?.variantSeed === undefined
+        ? undefined
+        : ((options.variantSeed ^ fnv1a32(String(lang))) >>> 0);
+    out[lang] = obfuscateDictionary(dictionaries[lang], mapping, {
+      variants: options?.variants,
+      variantSeed: langSeed,
+    }) as T[keyof T];
+  }
+  return out;
+}
+
+function obfuscateStringLeavesInternal(
+  value: unknown,
+  mapping: Record<string, number>,
+  options: { variants?: Record<string, number[]>; variantSeed?: number },
+  path: string,
+): unknown {
+  if (typeof value === "string") {
+    const leafSeed =
+      options.variantSeed === undefined
+        ? undefined
+        : ((options.variantSeed ^ fnv1a32(path || "$")) >>> 0);
+    return encodeText(value, mapping, {
+      variants: options.variants,
+      variantSeed: leafSeed,
+    });
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item, i) =>
+      obfuscateStringLeavesInternal(item, mapping, options, `${path}[${i}]`));
+  }
+
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = obfuscateStringLeavesInternal(v, mapping, options, `${path}.${k}`);
+    }
+    return out;
+  }
+
+  return value;
+}
+
+/**
+ * Obfuscate all string leaves in an arbitrary JSON-like state object.
+ *
+ * This is useful when embedding pre-obfuscated state snapshots into HTML while
+ * keeping non-string values (numbers, booleans, null) untouched.
+ */
+export function obfuscateStringLeaves<T>(
+  state: T,
+  mapping: Record<string, number>,
+  options?: { variants?: Record<string, number[]>; variantSeed?: number },
+): T {
+  return obfuscateStringLeavesInternal(state, mapping, {
+    variants: options?.variants,
+    variantSeed: options?.variantSeed,
+  }, "$") as T;
+}
+
+/**
  * Pre-encode an ordered array of values and return them in a **shuffled** order
  * together with an index map so the client can resolve `values[i]` without the
  * indices being trivially sequential.

@@ -1,6 +1,13 @@
 import { expect, it, vi } from "vitest";
 import * as opentypeModule from "opentype.js";
-import { FontObfuscator, encodeText, preEncodeShuffled } from "../lib/index.ts";
+import {
+  FontObfuscator,
+  encodeText,
+  obfuscateDictionary,
+  obfuscateI18nDictionary,
+  obfuscateStringLeaves,
+  preEncodeShuffled,
+} from "../lib/index.ts";
 
 const opentype = (opentypeModule as { default?: unknown }).default ?? opentypeModule;
 
@@ -221,6 +228,81 @@ it("encodeText can emit multiple variants for same digit when variants are provi
   }
 
   expect(out.size).toBeGreaterThan(1);
+});
+
+it("obfuscateDictionary preserves keys and obfuscates all values", async () => {
+  const obf = new FontObfuscator({
+    fontUrl:
+      "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+  });
+
+  const pm = await obf.precomputeMapping("<html><body><p>Hello こんにちは</p></body></html>");
+  const dict = {
+    title: "Hello",
+    lead: "こんにちは",
+  };
+
+  const out = obfuscateDictionary(dict, pm.mapping, {
+    variants: pm.variants,
+    variantSeed: pm.seed,
+  });
+
+  expect(Object.keys(out)).toEqual(Object.keys(dict));
+  expect(out.title).not.toBe(dict.title);
+  expect(out.lead).not.toBe(dict.lead);
+});
+
+it("obfuscateI18nDictionary preserves language/key structure", async () => {
+  const obf = new FontObfuscator({
+    fontUrl:
+      "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+  });
+
+  const pm = await obf.precomputeMapping("<html><body><p>Hello こんにちは</p></body></html>");
+  const dictionaries = {
+    ja: { title: "こんにちは", button: "開始" },
+    en: { title: "Hello", button: "Start" },
+  };
+
+  const out = obfuscateI18nDictionary(dictionaries, pm.mapping, {
+    variants: pm.variants,
+    variantSeed: pm.seed,
+  });
+
+  expect(Object.keys(out)).toEqual(["ja", "en"]);
+  expect(Object.keys(out.ja)).toEqual(["title", "button"]);
+  expect(Object.keys(out.en)).toEqual(["title", "button"]);
+  expect(out.ja.title).not.toBe(dictionaries.ja.title);
+  expect(out.en.title).not.toBe(dictionaries.en.title);
+});
+
+it("obfuscateStringLeaves obfuscates only string leaves", async () => {
+  const obf = new FontObfuscator({
+    fontUrl:
+      "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+  });
+
+  const pm = await obf.precomputeMapping("<html><body><p>Hello idle done</p></body></html>");
+  const state = {
+    counter: 1,
+    status: "idle",
+    nested: {
+      message: "done",
+      flags: [true, false],
+      labels: ["Hello", "Start"],
+    },
+  };
+
+  const out = obfuscateStringLeaves(state, pm.mapping, {
+    variants: pm.variants,
+    variantSeed: pm.seed,
+  });
+
+  expect(out.counter).toBe(1);
+  expect(out.nested.flags).toEqual([true, false]);
+  expect(out.status).not.toBe("idle");
+  expect(out.nested.message).not.toBe("done");
+  expect(out.nested.labels[0]).not.toBe("Hello");
 });
 
 it("variantCount allocates multiple PUA variants for non-digit characters", async () => {

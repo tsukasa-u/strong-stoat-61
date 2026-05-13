@@ -57,6 +57,40 @@ if (fontRes) return fontRes;
 - `maybeHandleFontRequest(request)`
 - `precomputeHtml()` + `servePrecomputed()` for cached templates
 - `precomputeMapping()` + `serveWithMapping()` for dynamic SSR HTML
+- `obfuscateDictionary()` for flat key/value text dictionaries
+- `obfuscateI18nDictionary()` for nested i18n dictionaries (`{ ja, en, ... }`)
+- `obfuscateStringLeaves()` for JSON-like state snapshots (string leaves only)
+
+### Obfuscated Dictionary / State Helpers
+
+Use these helpers when you want framework-friendly i18n/state structures while
+keeping client payload values obfuscated.
+
+```ts
+import {
+  FontObfuscator,
+  obfuscateI18nDictionary,
+  obfuscateStringLeaves,
+} from "font-obfuscator";
+
+const obfuscator = new FontObfuscator({ fontUrl: "https://.../font.ttf" });
+const pm = await obfuscator.getRotatingMapping("<p>hint text</p>");
+
+const obfI18n = obfuscateI18nDictionary(
+  {
+    ja: { title: "こんにちは" },
+    en: { title: "Hello" },
+  },
+  pm.mapping,
+  { variants: pm.variants, variantSeed: pm.seed },
+);
+
+const obfState = obfuscateStringLeaves(
+  { status: "idle", count: 1, labels: ["Start", "Done"] },
+  pm.mapping,
+  { variants: pm.variants, variantSeed: pm.seed },
+);
+```
 
 ## PUA Capacity Modes
 
