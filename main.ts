@@ -1,4 +1,4 @@
-import { FontObfuscator } from "./lib/index.ts";
+import { FontObfuscator, encodeText, type PrecomputedMapping } from "./lib/index.ts";
 
 // Server-side i18n: All UI text for both languages (encrypted after server processing)
 const I18N = {
@@ -69,6 +69,24 @@ const I18N = {
     detailRendered: "③ Browser render (human-readable)",
   },
 } as const;
+
+type UiLang = keyof typeof I18N;
+type I18nDict = Record<UiLang, Record<string, string>>;
+
+const I18N_KEYS = Object.keys(I18N.ja) as Array<keyof (typeof I18N)["ja"]>;
+
+function buildObfuscatedI18n(precomputed: PrecomputedMapping): I18nDict {
+  const out = { ja: {}, en: {} } as I18nDict;
+  for (const lang of Object.keys(I18N) as UiLang[]) {
+    for (const key of I18N_KEYS) {
+      out[lang][key] = encodeText(I18N[lang][key], precomputed.mapping, {
+        variants: precomputed.variants,
+        variantSeed: precomputed.seed,
+      });
+    }
+  }
+  return out;
+}
 
 const obfuscator = new FontObfuscator({
   fontUrl:
@@ -610,9 +628,9 @@ function basePageHtml(): string {
   <main class="app">
 
     <section class="hero">
-      <h1 class="secret"><span data-lang="ja">${I18N.ja.title}</span><span data-lang="en" style="display:none">${I18N.en.title}</span></h1>
-      <p class="lead secret"><span data-lang="ja">${I18N.ja.lead}</span><span data-lang="en" style="display:none">${I18N.en.lead}</span></p>
-      <p class="lead-sub secret"><span data-lang="ja">${I18N.ja.leadSub}</span><span data-lang="en" style="display:none">${I18N.en.leadSub}</span></p>
+      <h1 class="secret" data-i18n="title">${I18N.ja.title}</h1>
+      <p class="lead secret" data-i18n="lead">${I18N.ja.lead}</p>
+      <p class="lead-sub secret" data-i18n="leadSub">${I18N.ja.leadSub}</p>
       <div class="lang-switch" role="group" aria-label="Language Switch">
         <button id="lang-ja" class="lang-btn active" type="button">日本語</button>
         <button id="lang-en" class="lang-btn" type="button">English</button>
@@ -620,18 +638,18 @@ function basePageHtml(): string {
     </section>
 
     <section class="proof">
-      <p class="proof-heading secret"><span data-lang="ja">${I18N.ja.proofTitle}</span><span data-lang="en" style="display:none">${I18N.en.proofTitle}</span></p>
+      <p class="proof-heading secret" data-i18n="proofTitle">${I18N.ja.proofTitle}</p>
       <div class="proof-grid">
         <div>
-          <div class="proof-col-title bad secret"><span data-lang="ja">${I18N.ja.proofSrcLabel}</span><span data-lang="en" style="display:none">${I18N.en.proofSrcLabel}</span></div>
+          <div class="proof-col-title bad secret" data-i18n="proofSrcLabel">${I18N.ja.proofSrcLabel}</div>
           <div class="proof-box proof-garbled" id="proof-source"></div>
-          <p class="proof-note secret"><span data-lang="ja">${I18N.ja.proofSrcNote}</span><span data-lang="en" style="display:none">${I18N.en.proofSrcNote}</span></p>
+          <p class="proof-note secret" data-i18n="proofSrcNote">${I18N.ja.proofSrcNote}</p>
         </div>
-        <div class="proof-arrow secret"><span data-lang="ja">${I18N.ja.proofArrow}</span><span data-lang="en" style="display:none">${I18N.en.proofArrow}</span></div>
+        <div class="proof-arrow secret" data-i18n="proofArrow">${I18N.ja.proofArrow}</div>
         <div>
-          <div class="proof-col-title good secret"><span data-lang="ja">${I18N.ja.proofRenderLabel}</span><span data-lang="en" style="display:none">${I18N.en.proofRenderLabel}</span></div>
+          <div class="proof-col-title good secret" data-i18n="proofRenderLabel">${I18N.ja.proofRenderLabel}</div>
           <div class="proof-box proof-rendered" id="proof-rendered"></div>
-          <p class="proof-note secret"><span data-lang="ja">${I18N.ja.proofRenderNote}</span><span data-lang="en" style="display:none">${I18N.en.proofRenderNote}</span></p>
+          <p class="proof-note secret" data-i18n="proofRenderNote">${I18N.ja.proofRenderNote}</p>
         </div>
       </div>
     </section>
@@ -641,19 +659,19 @@ function basePageHtml(): string {
       <article class="card">
         <div class="card-head">
           <div class="tag">selector: .obf-target</div>
-          <span class="badge badge-ok secret"><span data-lang="ja">${I18N.ja.targetBadge}</span><span data-lang="en" style="display:none">${I18N.en.targetBadge}</span></span>
+          <span class="badge badge-ok secret" data-i18n="targetBadge">${I18N.ja.targetBadge}</span>
         </div>
         <p id="target-1" class="obf-target">この文章は難読化されます: Hello, world! こんにちは 12345</p>
         <p id="target-2" class="obf-target">同じセレクタの別要素も難読化されます。</p>
         <div class="copy-demo-row">
-          <button id="copy-demo-obf" type="button" class="btn-sm btn-ghost secret"><span data-lang="ja">${I18N.ja.copyDemoBtn}</span><span data-lang="en" style="display:none">${I18N.en.copyDemoBtn}</span></button>
+          <button id="copy-demo-obf" type="button" class="btn-sm btn-ghost secret" data-i18n="copyDemoBtn">${I18N.ja.copyDemoBtn}</button>
         </div>
         <div id="copy-result-obf" style="display:none">
-          <p class="copy-result-label secret"><span data-lang="ja">${I18N.ja.copyResultLabel}</span><span data-lang="en" style="display:none">${I18N.en.copyResultLabel}</span></p>
+          <p class="copy-result-label secret" data-i18n="copyResultLabel">${I18N.ja.copyResultLabel}</p>
           <pre class="src-peek-code" id="copy-result-obf-text"></pre>
         </div>
         <details class="src-peek">
-          <summary class="secret"><span data-lang="ja">${I18N.ja.srcPeekBtn}</span><span data-lang="en" style="display:none">${I18N.en.srcPeekBtn}</span></summary>
+          <summary class="secret" data-i18n="srcPeekBtn">${I18N.ja.srcPeekBtn}</summary>
           <pre class="src-peek-code" id="src-peek-obf-text"></pre>
         </details>
       </article>
@@ -661,29 +679,29 @@ function basePageHtml(): string {
       <article class="card">
         <div class="card-head">
           <div class="tag">selector: #secret</div>
-          <span class="badge badge-ok secret"><span data-lang="ja">${I18N.ja.targetBadge}</span><span data-lang="en" style="display:none">${I18N.en.targetBadge}</span></span>
+          <span class="badge badge-ok secret" data-i18n="targetBadge">${I18N.ja.targetBadge}</span>
         </div>
         <p id="secret">この要素も難読化されます。</p>
         <div class="copy-demo-row">
-          <button id="copy-demo-secret" type="button" class="btn-sm btn-ghost secret"><span data-lang="ja">${I18N.ja.copyDemoBtn}</span><span data-lang="en" style="display:none">${I18N.en.copyDemoBtn}</span></button>
+          <button id="copy-demo-secret" type="button" class="btn-sm btn-ghost secret" data-i18n="copyDemoBtn">${I18N.ja.copyDemoBtn}</button>
         </div>
         <div id="copy-result-secret" style="display:none">
-          <p class="copy-result-label secret"><span data-lang="ja">${I18N.ja.copyResultLabel}</span><span data-lang="en" style="display:none">${I18N.en.copyResultLabel}</span></p>
+          <p class="copy-result-label secret" data-i18n="copyResultLabel">${I18N.ja.copyResultLabel}</p>
           <pre class="src-peek-code" id="copy-result-secret-text"></pre>
         </div>
         <details class="src-peek">
-          <summary class="secret"><span data-lang="ja">${I18N.ja.srcPeekBtn}</span><span data-lang="en" style="display:none">${I18N.en.srcPeekBtn}</span></summary>
+          <summary class="secret" data-i18n="srcPeekBtn">${I18N.ja.srcPeekBtn}</summary>
           <pre class="src-peek-code" id="src-peek-secret-text"></pre>
         </details>
       </article>
 
       <article class="card">
         <div class="card-head">
-          <div class="tag secret" style="background:#fef3c7;border-color:#fcd34d;color:#92400e;"><span data-lang="ja">${I18N.ja.notTargetedLabel}</span><span data-lang="en" style="display:none">${I18N.en.notTargetedLabel}</span></div>
-          <span class="badge badge-warn secret"><span data-lang="ja">${I18N.ja.notTargetBadge}</span><span data-lang="en" style="display:none">${I18N.en.notTargetBadge}</span></span>
+          <div class="tag secret" style="background:#fef3c7;border-color:#fcd34d;color:#92400e;" data-i18n="notTargetedLabel">${I18N.ja.notTargetedLabel}</div>
+          <span class="badge badge-warn secret" data-i18n="notTargetBadge">${I18N.ja.notTargetBadge}</span>
         </div>
-        <p class="plain secret"><span data-lang="ja">${I18N.ja.plain}</span><span data-lang="en" style="display:none">${I18N.en.plain}</span></p>
-        <p class="not-targeted-note secret"><span data-lang="ja">${I18N.ja.notTargetedWarn}</span><span data-lang="en" style="display:none">${I18N.en.notTargetedWarn}</span></p>
+        <p class="plain secret" data-i18n="plain">${I18N.ja.plain}</p>
+        <p class="not-targeted-note secret" data-i18n="notTargetedWarn">${I18N.ja.notTargetedWarn}</p>
       </article>
 
     </div>
@@ -693,9 +711,9 @@ function basePageHtml(): string {
       <article class="card">
         <div class="card-head">
           <div class="tag">selector: .obf-dynamic</div>
-          <span class="badge badge-ok secret"><span data-lang="ja">${I18N.ja.targetBadge}</span><span data-lang="en" style="display:none">${I18N.en.targetBadge}</span></span>
+          <span class="badge badge-ok secret" data-i18n="targetBadge">${I18N.ja.targetBadge}</span>
         </div>
-        <p class="dynamic-note secret"><span data-lang="ja">${I18N.ja.counterNote}</span><span data-lang="en" style="display:none">${I18N.en.counterNote}</span></p>
+        <p class="dynamic-note secret" data-i18n="counterNote">${I18N.ja.counterNote}</p>
         <div id="counter-display" style="font-size:1.6rem;font-weight:700;min-height:2.4rem;margin:0.5rem 0 0;">
           <span id="count-0" class="obf-dynamic">0</span>
           <span id="count-1" class="obf-dynamic" style="display:none">1</span>
@@ -709,26 +727,26 @@ function basePageHtml(): string {
           <span id="count-9" class="obf-dynamic" style="display:none">9</span>
         </div>
         <div class="copy-demo-row">
-          <button id="btn-count-up" type="button" class="btn-sm secret"><span data-lang="ja">${I18N.ja.countUpBtn}</span><span data-lang="en" style="display:none">${I18N.en.countUpBtn}</span></button>
-          <button id="btn-count-reset" type="button" class="btn-sm btn-ghost secret"><span data-lang="ja">${I18N.ja.countResetBtn}</span><span data-lang="en" style="display:none">${I18N.en.countResetBtn}</span></button>
+          <button id="btn-count-up" type="button" class="btn-sm secret" data-i18n="countUpBtn">${I18N.ja.countUpBtn}</button>
+          <button id="btn-count-reset" type="button" class="btn-sm btn-ghost secret" data-i18n="countResetBtn">${I18N.ja.countResetBtn}</button>
         </div>
       </article>
 
       <article class="card">
         <div class="card-head">
           <div class="tag">selector: .obf-dynamic</div>
-          <span class="badge badge-ok secret"><span data-lang="ja">${I18N.ja.targetBadge}</span><span data-lang="en" style="display:none">${I18N.en.targetBadge}</span></span>
+          <span class="badge badge-ok secret" data-i18n="targetBadge">${I18N.ja.targetBadge}</span>
         </div>
-        <p class="dynamic-note secret"><span data-lang="ja">${I18N.ja.statusNote}</span><span data-lang="en" style="display:none">${I18N.en.statusNote}</span></p>
+        <p class="dynamic-note secret" data-i18n="statusNote">${I18N.ja.statusNote}</p>
         <div id="status-display" style="font-size:1.1rem;font-weight:600;min-height:2.4rem;margin:0.5rem 0 0;">
           <span id="status-idle" class="obf-dynamic">idle</span>
           <span id="status-working" class="obf-dynamic" style="display:none">working</span>
           <span id="status-done" class="obf-dynamic" style="display:none">done</span>
         </div>
         <div class="copy-demo-row">
-          <button id="btn-status-working" type="button" class="btn-sm secret"><span data-lang="ja">${I18N.ja.statusStartBtn}</span><span data-lang="en" style="display:none">${I18N.en.statusStartBtn}</span></button>
-          <button id="btn-status-done" type="button" class="btn-sm secret"><span data-lang="ja">${I18N.ja.statusDoneBtn}</span><span data-lang="en" style="display:none">${I18N.en.statusDoneBtn}</span></button>
-          <button id="btn-status-reset" type="button" class="btn-sm btn-ghost secret"><span data-lang="ja">${I18N.ja.statusResetBtn}</span><span data-lang="en" style="display:none">${I18N.en.statusResetBtn}</span></button>
+          <button id="btn-status-working" type="button" class="btn-sm secret" data-i18n="statusStartBtn">${I18N.ja.statusStartBtn}</button>
+          <button id="btn-status-done" type="button" class="btn-sm secret" data-i18n="statusDoneBtn">${I18N.ja.statusDoneBtn}</button>
+          <button id="btn-status-reset" type="button" class="btn-sm btn-ghost secret" data-i18n="statusResetBtn">${I18N.ja.statusResetBtn}</button>
         </div>
       </article>
 
@@ -736,37 +754,37 @@ function basePageHtml(): string {
 
     <section class="inspect">
       <div class="inspect-head">
-        <h2 class="inspect-title secret"><span data-lang="ja">${I18N.ja.inspectorTitle}</span><span data-lang="en" style="display:none">${I18N.en.inspectorTitle}</span></h2>
+        <h2 class="inspect-title secret" data-i18n="inspectorTitle">${I18N.ja.inspectorTitle}</h2>
       </div>
-      <p class="inspect-note secret"><span data-lang="ja">${I18N.ja.inspectorNote}</span><span data-lang="en" style="display:none">${I18N.en.inspectorNote}</span></p>
+      <p class="inspect-note secret" data-i18n="inspectorNote">${I18N.ja.inspectorNote}</p>
       <div class="detail-grid">
         <section class="detail-card">
           <h3 class="detail-title">selector: .obf-target</h3>
           <div class="detail-row">
-            <span class="detail-label secret"><span data-lang="ja">${I18N.ja.detailSourceHtml}</span><span data-lang="en" style="display:none">${I18N.en.detailSourceHtml}</span></span>
+            <span class="detail-label secret" data-i18n="detailSourceHtml">${I18N.ja.detailSourceHtml}</span>
             <pre class="detail-code" id="detail-obf-source"></pre>
           </div>
           <div class="detail-row">
-            <span class="detail-label secret"><span data-lang="ja">${I18N.ja.detailDomText}</span><span data-lang="en" style="display:none">${I18N.en.detailDomText}</span></span>
+            <span class="detail-label secret" data-i18n="detailDomText">${I18N.ja.detailDomText}</span>
             <pre class="detail-dom" id="detail-obf-dom"></pre>
           </div>
           <div class="detail-row">
-            <span class="detail-label secret"><span data-lang="ja">${I18N.ja.detailRendered}</span><span data-lang="en" style="display:none">${I18N.en.detailRendered}</span></span>
+            <span class="detail-label secret" data-i18n="detailRendered">${I18N.ja.detailRendered}</span>
             <p class="detail-value" id="detail-obf-render"></p>
           </div>
         </section>
         <section class="detail-card">
           <h3 class="detail-title">selector: #secret</h3>
           <div class="detail-row">
-            <span class="detail-label secret"><span data-lang="ja">${I18N.ja.detailSourceHtml}</span><span data-lang="en" style="display:none">${I18N.en.detailSourceHtml}</span></span>
+            <span class="detail-label secret" data-i18n="detailSourceHtml">${I18N.ja.detailSourceHtml}</span>
             <pre class="detail-code" id="detail-secret-source"></pre>
           </div>
           <div class="detail-row">
-            <span class="detail-label secret"><span data-lang="ja">${I18N.ja.detailDomText}</span><span data-lang="en" style="display:none">${I18N.en.detailDomText}</span></span>
+            <span class="detail-label secret" data-i18n="detailDomText">${I18N.ja.detailDomText}</span>
             <pre class="detail-dom" id="detail-secret-dom"></pre>
           </div>
           <div class="detail-row">
-            <span class="detail-label secret"><span data-lang="ja">${I18N.ja.detailRendered}</span><span data-lang="en" style="display:none">${I18N.en.detailRendered}</span></span>
+            <span class="detail-label secret" data-i18n="detailRendered">${I18N.ja.detailRendered}</span>
             <p class="detail-value" id="detail-secret-render"></p>
           </div>
         </section>
@@ -774,14 +792,14 @@ function basePageHtml(): string {
     </section>
 
     <section class="usage">
-      <span class="secret"><span data-lang="ja">${I18N.ja.usageTitle}</span><span data-lang="en" style="display:none">${I18N.en.usageTitle}</span></span>
+      <span class="secret" data-i18n="usageTitle">${I18N.ja.usageTitle}</span>
       <code>obfuscateHtml(html, {
   selectors: [".secret", "#secret"],
 });</code>
     </section>
 
     <section class="usage">
-      <span class="secret"><span data-lang="ja">${I18N.ja.frameworkTitle}</span><span data-lang="en" style="display:none">${I18N.en.frameworkTitle}</span></span>
+      <span class="secret" data-i18n="frameworkTitle">${I18N.ja.frameworkTitle}</span>
       <code>withNextRouteHandlerObfuscation(handler, obfuscator, { selectors })
 withRemixRequestHandlerObfuscation(handler, obfuscator, { selectors })
 withAstroEndpointObfuscation(handler, obfuscator, { selectors })
@@ -792,7 +810,17 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
 
   </main>
 
+  <script id="obf-i18n" type="application/json">__OBF_I18N_JSON__</script>
   <script>
+    const obfI18n = (() => {
+      try {
+        const node = document.getElementById("obf-i18n");
+        return JSON.parse(node?.textContent || "{}");
+      } catch {
+        return {};
+      }
+    })();
+
     let currentLang = "ja";
 
     function setLangButtons() {
@@ -804,8 +832,14 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
 
     function applyLanguage(lang) {
       currentLang = lang;
-      document.querySelectorAll("[data-lang]").forEach((el) => {
-        el.style.display = el.dataset.lang === lang ? "" : "none";
+      const dict = obfI18n[lang] || {};
+      document.querySelectorAll("[data-i18n]").forEach((el) => {
+        const key = el.getAttribute("data-i18n");
+        if (!key) return;
+        const value = dict[key];
+        if (typeof value === "string") {
+          el.textContent = value;
+        }
       });
       setLangButtons();
       setTimeout(refreshInspector, 0);
@@ -970,14 +1004,12 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
 </html>`;
 }
 
-// HTML template is evaluated once; per-request only font ticket changes.
-// Mapping rotates every 2 minutes (library default) to limit the window
-// during which a captured font file remains exploitable.
-const PAGE_HTML = basePageHtml();
+const PAGE_TEMPLATE_HTML = basePageHtml();
 const PAGE_SELECTORS = [".secret", "#secret", ".obf-target", ".obf-dynamic"];
+const I18N_HINT_TEXT = `${Object.values(I18N.ja).join(" ")} ${Object.values(I18N.en).join(" ")}`;
 
 // Warm up source-font fetch/parse before serving traffic to reduce first-hit tofu risk.
-const prewarmPromise = obfuscator.precomputeMapping(PAGE_HTML).then(() => undefined).catch(() => undefined);
+const prewarmPromise = obfuscator.getRotatingMapping(I18N_HINT_TEXT).then(() => undefined).catch(() => undefined);
 
 async function handler(req: Request): Promise<Response> {
   const fontResponse = await obfuscator.maybeHandleFontRequest(req);
@@ -990,8 +1022,10 @@ async function handler(req: Request): Promise<Response> {
 
   await prewarmPromise;
 
-  const page = await obfuscator.getRotatingPrecomputedPage(PAGE_HTML, PAGE_SELECTORS);
-  const html = await obfuscator.servePrecomputed(page, {
+  const precomputed = await obfuscator.getRotatingMapping(I18N_HINT_TEXT);
+  const obfI18n = buildObfuscatedI18n(precomputed);
+  const rawHtml = PAGE_TEMPLATE_HTML.replace("__OBF_I18N_JSON__", JSON.stringify(obfI18n));
+  const html = await obfuscator.serveWithMapping(rawHtml, PAGE_SELECTORS, precomputed, {
     pageKey: url.pathname,
   });
 
