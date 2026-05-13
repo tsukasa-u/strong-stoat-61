@@ -1262,11 +1262,11 @@ export function obfuscateDictionary<T extends Record<string, string>>(
   mapping: Record<string, number>,
   options?: { variants?: Record<string, number[]>; variantSeed?: number },
 ): T {
-  const out = {} as T;
-  for (const key of Object.keys(dict) as Array<keyof T>) {
-    out[key] = encodeText(dict[key], mapping, options);
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(dict)) {
+    out[key] = encodeText(value, mapping, options);
   }
-  return out;
+  return out as T;
 }
 
 /**

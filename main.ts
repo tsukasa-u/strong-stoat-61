@@ -1,4 +1,4 @@
-import { FontObfuscator, encodeText, type PrecomputedMapping } from "./lib/index.ts";
+import { FontObfuscator, obfuscateI18nDictionary } from "./lib/index.ts";
 
 // Server-side i18n: All UI text for both languages (encrypted after server processing)
 const I18N = {
@@ -70,24 +70,6 @@ const I18N = {
   },
 } as const;
 
-type UiLang = keyof typeof I18N;
-type I18nDict = Record<UiLang, Record<string, string>>;
-
-const I18N_KEYS = Object.keys(I18N.ja) as Array<keyof (typeof I18N)["ja"]>;
-
-function buildObfuscatedI18n(precomputed: PrecomputedMapping): I18nDict {
-  const out = { ja: {}, en: {} } as I18nDict;
-  for (const lang of Object.keys(I18N) as UiLang[]) {
-    for (const key of I18N_KEYS) {
-      out[lang][key] = encodeText(I18N[lang][key], precomputed.mapping, {
-        variants: precomputed.variants,
-        variantSeed: precomputed.seed,
-      });
-    }
-  }
-  return out;
-}
-
 const obfuscator = new FontObfuscator({
   fontUrl:
     "https://raw.githubusercontent.com/google/fonts/main/ofl/notosansjp/NotoSansJP%5Bwght%5D.ttf",
@@ -102,7 +84,9 @@ const obfuscator = new FontObfuscator({
   variantCount: 4,
   // Local Deno demo has no trusted reverse proxy.
   trustedProxies: [],
-  devMode: Deno.env.get("DENO_ENV") === "development",
+  devMode:
+    (globalThis as { Deno?: { env?: { get?: (key: string) => string | undefined } } })
+      .Deno?.env?.get?.("DENO_ENV") === "development",
 });
 
 function basePageHtml(): string {
@@ -1023,7 +1007,10 @@ async function handler(req: Request): Promise<Response> {
   await prewarmPromise;
 
   const precomputed = await obfuscator.getRotatingMapping(I18N_HINT_TEXT);
-  const obfI18n = buildObfuscatedI18n(precomputed);
+  const obfI18n = obfuscateI18nDictionary(I18N, precomputed.mapping, {
+    variants: precomputed.variants,
+    variantSeed: precomputed.seed,
+  });
   const rawHtml = PAGE_TEMPLATE_HTML.replace("__OBF_I18N_JSON__", JSON.stringify(obfI18n));
   const html = await obfuscator.serveWithMapping(rawHtml, PAGE_SELECTORS, precomputed, {
     pageKey: url.pathname,

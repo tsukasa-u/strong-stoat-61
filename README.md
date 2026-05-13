@@ -11,13 +11,13 @@ so text remains readable on screen but harder to extract from copied raw text.
 
 ## Quick Start
 
-1. Install
+### Step 1: Install
 
 ```bash
 pnpm add font-obfuscator
 ```
 
-2. Wrap your HTML response handler
+### Step 2: Wrap your HTML response handler
 
 ```ts
 import { FontObfuscator, withFetchObfuscation } from "font-obfuscator";
@@ -37,7 +37,7 @@ const handler = withFetchObfuscation(
 );
 ```
 
-3. If you are not using adapter wrappers, handle font token requests early
+### Step 3: If you are not using adapter wrappers, handle font token requests early
 
 ```ts
 const fontRes = await obfuscator.maybeHandleFontRequest(req);
@@ -52,19 +52,48 @@ if (fontRes) return fontRes;
 
 ## Core APIs
 
+Choose APIs by use case rather than memorizing a flat list.
+
+### 1) Baseline APIs
+
 - `new FontObfuscator(options)`
+Use: create the obfuscator instance.
 - `obfuscateHtml(html, { selectors })`
+Use: one-shot server-side obfuscation for an HTML string.
 - `maybeHandleFontRequest(request)`
-- `precomputeHtml()` + `servePrecomputed()` for cached templates
-- `precomputeMapping()` + `serveWithMapping()` for dynamic SSR HTML
-- `obfuscateDictionary()` for flat key/value text dictionaries
-- `obfuscateI18nDictionary()` for nested i18n dictionaries (`{ ja, en, ... }`)
-- `obfuscateStringLeaves()` for JSON-like state snapshots (string leaves only)
+Use: early return for `/_obf/font/...` ticket requests.
+
+### 2) Cached static templates
+
+- `precomputeHtml(html, { selectors })`
+Use: precompute once for mostly-static templates.
+- `servePrecomputed(precomputedPage, options?)`
+Use: per-request ticket injection from the precomputed template.
+
+### 3) Dynamic SSR pages
+
+- `precomputeMapping(hintHtml?)`
+Use: prepare mapping ahead of runtime rendering.
+- `getRotatingMapping(hintHtml?)`
+Use: get rotation-aware mapping for better replay resistance.
+- `serveWithMapping(html, selectors, precomputedMapping, options?)`
+Use: obfuscate request-time HTML with a known mapping.
 
 ### Obfuscated Dictionary / State Helpers
 
 Use these helpers when you want framework-friendly i18n/state structures while
 keeping client payload values obfuscated.
+
+- `encodeText(text, mapping, options?)`
+Use: obfuscate a single string.
+- `preEncodeShuffled(values, mapping, options?)`
+Use: pre-obfuscate value arrays with shuffle + decoys.
+- `obfuscateDictionary(dict, mapping, options?)`
+Use: obfuscate values of a flat string dictionary.
+- `obfuscateI18nDictionary(dictionaries, mapping, options?)`
+Use: obfuscate nested language dictionaries (`{ ja, en, ... }`).
+- `obfuscateStringLeaves(state, mapping, options?)`
+Use: obfuscate only string leaves in JSON-like state.
 
 ```ts
 import {
@@ -91,6 +120,26 @@ const obfState = obfuscateStringLeaves(
   { variants: pm.variants, variantSeed: pm.seed },
 );
 ```
+
+### 5) Framework wrappers
+
+- `obfuscateHtmlResponse(response, obfuscator, options)`
+Use: post-process an existing `Response`.
+- `withFetchObfuscation(...)`
+Use: generic Fetch handler wrapper.
+- `withNextRouteHandlerObfuscation(...)`
+Use: Next.js Route Handler wrapper.
+- `withRemixRequestHandlerObfuscation(...)`
+Use: Remix request handler wrapper.
+- `withAstroEndpointObfuscation(...)`
+Use: Astro endpoint wrapper.
+- `withSvelteKitHandleObfuscation(...)`
+Use: SvelteKit `handle` wrapper.
+- `withHonoObfuscation(...)`
+Use: Hono handler wrapper.
+
+Type exports (such as `FontObfuscatorOptions`) are available via TypeScript
+autocomplete. If you need the full export surface, see `lib/index.ts`.
 
 ## PUA Capacity Modes
 
