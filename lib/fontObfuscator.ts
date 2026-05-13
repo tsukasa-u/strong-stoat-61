@@ -2025,7 +2025,7 @@ export class FontObfuscator {
 
     const devMode = options.devMode ?? this.devMode;
     if (devMode) {
-      const unmappedChars = this.findUnmappedChars(html, mapping);
+      const unmappedChars = this.findUnmappedChars(html, mapping, normalizedSelectors);
       if (unmappedChars.size > 0) {
         out = injectBeforeEndTag(out, "body", this.buildDevWarningPanel(unmappedChars, normalizedSelectors));
       }
@@ -2166,7 +2166,7 @@ export class FontObfuscator {
 
     const devMode = options.devMode ?? this.devMode;
     if (devMode) {
-      const unmappedChars = this.findUnmappedChars(source, mapping);
+      const unmappedChars = this.findUnmappedChars(source, mapping, selectors);
       if (unmappedChars.size > 0) {
         out = injectBeforeEndTag(out, "body", this.buildDevWarningPanel(unmappedChars, selectors));
       }
@@ -2219,7 +2219,7 @@ export class FontObfuscator {
     const devMode = options.devMode ?? this.devMode;
     let unmappedChars: Set<string> | null = null;
     if (devMode) {
-      unmappedChars = this.findUnmappedChars(html, mapping);
+      unmappedChars = this.findUnmappedChars(html, mapping, selectors);
     }
 
     const family = options.fontFamilyName ?? `Obf_${ticket.token.slice(0, 8)}`;
@@ -2264,26 +2264,97 @@ export class FontObfuscator {
   private findUnmappedChars(
     html: string,
     mapping: Record<string, number>,
+    selectors: string[],
   ): Set<string> {
     const unmapped = new Set<string>();
 
-    // Strip HTML tags/scripts/styles/textarea, leaving only visible text content.
-    // Must mirror the same exclusions as extractTextCharsFromHtml so that
-    // chars in noparse blocks (e.g. textarea) are not falsely reported.
-    let textContent = extractUserVisibleAttributeText(html) + html
-      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
-      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
-      .replace(/<textarea\b[^>]*>[\s\S]*?<\/textarea>/gi, " ")
-      .replace(/<[^>]+>/g, " ");
+    // Walk the HTML using the same selector-scope logic as obfuscateSelectorScopeHtml.
+    // Only collect chars from within selector-matched element subtrees so that text
+    // outside the protected selectors does not generate false-positive warnings.
+    const sets = buildSelectorSets(selectors);
+    if (sets.ids.size === 0 && sets.classes.size === 0) return unmapped;
 
-    // Conservative check: report any non-whitespace visible character not in the
-    // mapping.  This may include chars outside selected elements — by design,
-    // devMode is a development tool and false positives help identify alphabet gaps.
-    for (const { ch } of decodeHtmlTextUnits(textContent, true)) {
-      if (!/\s/u.test(ch) && !mapping[ch]) {
-        unmapped.add(ch);
+    const stack: SelectorFrame[] = [];
+    let targetDepth = 0;
+    let noParseDepth = 0;
+    let i = 0;
+
+    const collectUnmapped = (text: string) => {
+      for (const { ch } of decodeHtmlTextUnits(text, true)) {
+        if (!/\s/u.test(ch) && !mapping[ch]) {
+          unmapped.add(ch);
+        }
       }
+    };
+
+    while (i < html.length) {
+      if (html[i] !== "<") {
+        const next = html.indexOf("<", i);
+        const end = next === -1 ? html.length : next;
+        if (targetDepth > 0 && noParseDepth === 0) {
+          collectUnmapped(html.slice(i, end));
+        }
+        i = end;
+        continue;
+      }
+
+      if (html.startsWith("<!--", i)) {
+        const end = html.indexOf("-->", i + 4);
+        i = end === -1 ? html.length : end + 3;
+        continue;
+      }
+
+      if (noParseDepth > 0) {
+        let innerTag = "";
+        for (let k = stack.length - 1; k >= 0; k--) {
+          if (stack[k].inNoParseScope) { innerTag = stack[k].tagName; break; }
+        }
+        if (innerTag && !startsWithClosingTagAt(html, i, innerTag)) {
+          i++;
+          continue;
+        }
+      }
+
+      const tagEnd = indexOfTagEnd(html, i + 1);
+      const rawTag = html.slice(i, tagEnd + 1);
+
+      if (/^<\s*\//.test(rawTag)) {
+        const closeName = parseTagName(rawTag);
+        if (closeName) {
+          for (let k = stack.length - 1; k >= 0; k--) {
+            if (stack[k].tagName !== closeName) continue;
+            for (let p = stack.length - 1; p >= k; p--) {
+              const frame = stack.pop()!;
+              if (frame.inTargetScope) targetDepth -= 1;
+              if (frame.inNoParseScope) noParseDepth -= 1;
+            }
+            break;
+          }
+        }
+        i = tagEnd + 1;
+        continue;
+      }
+
+      const tagName = parseTagName(rawTag);
+      const selfClose = /\/\s*>$/.test(rawTag) || (tagName !== null && HTML_VOID_ELEMENTS.has(tagName));
+      const noParseTag = tagName === "script" || tagName === "style" || tagName === "textarea";
+      const inTargetScope = targetDepth > 0 || matchesSelectorSets(rawTag, sets);
+
+      // Collect unmapped chars from user-visible attributes (placeholder, alt, title…)
+      // of elements that are themselves matched or are inside a matched subtree.
+      if (inTargetScope && noParseDepth === 0) {
+        collectUnmapped(extractUserVisibleAttributeText(rawTag));
+      }
+
+      if (tagName && !selfClose) {
+        stack.push({ tagName, inTargetScope, inNoParseScope: noParseTag });
+        if (inTargetScope) targetDepth += 1;
+        if (noParseTag) noParseDepth += 1;
+      }
+
+      i = tagEnd + 1;
     }
+
     return unmapped;
   }
 
