@@ -626,9 +626,36 @@ function basePageHtml(): string {
       .proof-grid { grid-template-columns: 1fr; }
       body { padding: 1rem 0.85rem 1.8rem; }
     }
+
+
+    /* Font loading overlay */
+    #font-loading-overlay {
+      position: fixed; inset: 0; z-index: 9999;
+      background: var(--bg);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 1rem;
+      transition: opacity 0.35s ease;
+    }
+    #font-loading-overlay.fade-out {
+      opacity: 0;
+      pointer-events: none;
+    }
+    .font-spinner {
+      width: 2.2rem; height: 2.2rem;
+      border: 3px solid var(--line);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: font-spin 0.75s linear infinite;
+    }
+    @keyframes font-spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
+  <div id="font-loading-overlay" role="status" aria-label="読み込み中">
+    <div class="font-spinner"></div>
+    <p style="margin:0;color:var(--ink-muted);font-size:0.9rem;">フォントを読み込み中...</p>
+  </div>
   <main class="app">
 
     <section class="hero">
@@ -806,6 +833,33 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
   <script id="obf-i18n" type="application/json">__OBF_I18N_JSON__</script>
   <script id="obf-state" type="application/json">__OBF_STATE_JSON__</script>
   <script>
+    // Hide loading overlay once the obfuscated font is ready.
+    // Falls back automatically after 20 s in case of prolonged cold start.
+    (function() {
+      var overlay = document.getElementById("font-loading-overlay");
+      if (!overlay) return;
+      function hideOverlay() {
+        if (!overlay) return;
+        overlay.classList.add("fade-out");
+        var el = overlay;
+        overlay = null;
+        setTimeout(function() { if (el.parentNode) el.parentNode.removeChild(el); }, 400);
+      }
+      var fallback = setTimeout(hideOverlay, 20000);
+      if (typeof document !== "undefined" && document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(function() {
+          clearTimeout(fallback);
+          hideOverlay();
+        }).catch(function() {
+          clearTimeout(fallback);
+          hideOverlay();
+        });
+      } else {
+        clearTimeout(fallback);
+        hideOverlay();
+      }
+    })();
+
     const obfI18n = (() => {
       try {
         const node = document.getElementById("obf-i18n");
@@ -1056,9 +1110,17 @@ async function handler(req: Request): Promise<Response> {
   const rawHtml = PAGE_TEMPLATE_HTML
     .replace("__OBF_I18N_JSON__", JSON.stringify(obfI18n))
     .replace("__OBF_STATE_JSON__", JSON.stringify(obfState));
-  const html = await obfuscator.serveWithMapping(rawHtml, PAGE_SELECTORS, precomputed, {
+  let html = await obfuscator.serveWithMapping(rawHtml, PAGE_SELECTORS, precomputed, {
     pageKey: url.pathname,
   });
+
+  // Inject <link rel="preload"> so the browser starts fetching the scrambled
+  // font as early as possible, reducing the visible loading window.
+  const fontSrcMatch = html.match(/src:url\("(\/_obf\/font\/[^"]+)"\)/);
+  if (fontSrcMatch) {
+    const preloadTag = `<link rel="preload" as="font" type="font/truetype" crossorigin href="${fontSrcMatch[1]}">`;
+    html = html.replace("</head>", preloadTag + "</head>");
+  }
 
   return new Response(html, {
     headers: {
