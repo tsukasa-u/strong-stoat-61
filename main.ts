@@ -1,4 +1,4 @@
-import { FontObfuscator, obfuscateI18nDictionary } from "./lib/index.ts";
+import { FontObfuscator, obfuscateI18nDictionary, obfuscateStringLeaves } from "./lib/index.ts";
 
 // Server-side i18n: All UI text for both languages (encrypted after server processing)
 const I18N = {
@@ -183,6 +183,16 @@ function basePageHtml(): string {
     .inspect {
       padding: 0.9rem 1rem;
       animation-delay: 280ms;
+    }
+
+    .card,
+    .proof,
+    .usage,
+    .inspect,
+    .cards-grid > *,
+    .dynamic-grid > *,
+    .proof-grid > * {
+      min-width: 0;
     }
 
     .card:nth-child(1) { animation-delay: 90ms; }
@@ -581,6 +591,16 @@ function basePageHtml(): string {
       color: var(--ink);
     }
 
+    .secret,
+    .obf-target,
+    .obf-dynamic,
+    .detail-value,
+    .detail-dom,
+    .detail-code {
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
     @keyframes reveal {
       from { opacity: 0; }
       to { opacity: 1; }
@@ -699,16 +719,7 @@ function basePageHtml(): string {
         </div>
         <p class="dynamic-note secret" data-i18n="counterNote">${I18N.ja.counterNote}</p>
         <div id="counter-display" style="font-size:1.6rem;font-weight:700;min-height:2.4rem;margin:0.5rem 0 0;">
-          <span id="count-0" class="obf-dynamic">0</span>
-          <span id="count-1" class="obf-dynamic" style="display:none">1</span>
-          <span id="count-2" class="obf-dynamic" style="display:none">2</span>
-          <span id="count-3" class="obf-dynamic" style="display:none">3</span>
-          <span id="count-4" class="obf-dynamic" style="display:none">4</span>
-          <span id="count-5" class="obf-dynamic" style="display:none">5</span>
-          <span id="count-6" class="obf-dynamic" style="display:none">6</span>
-          <span id="count-7" class="obf-dynamic" style="display:none">7</span>
-          <span id="count-8" class="obf-dynamic" style="display:none">8</span>
-          <span id="count-9" class="obf-dynamic" style="display:none">9</span>
+          <span id="count-current" class="obf-dynamic">0</span>
         </div>
         <div class="copy-demo-row">
           <button id="btn-count-up" type="button" class="btn-sm secret" data-i18n="countUpBtn">${I18N.ja.countUpBtn}</button>
@@ -723,9 +734,7 @@ function basePageHtml(): string {
         </div>
         <p class="dynamic-note secret" data-i18n="statusNote">${I18N.ja.statusNote}</p>
         <div id="status-display" style="font-size:1.1rem;font-weight:600;min-height:2.4rem;margin:0.5rem 0 0;">
-          <span id="status-idle" class="obf-dynamic">idle</span>
-          <span id="status-working" class="obf-dynamic" style="display:none">working</span>
-          <span id="status-done" class="obf-dynamic" style="display:none">done</span>
+          <span id="status-current" class="obf-dynamic">idle</span>
         </div>
         <div class="copy-demo-row">
           <button id="btn-status-working" type="button" class="btn-sm secret" data-i18n="statusStartBtn">${I18N.ja.statusStartBtn}</button>
@@ -795,10 +804,20 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
   </main>
 
   <script id="obf-i18n" type="application/json">__OBF_I18N_JSON__</script>
+  <script id="obf-state" type="application/json">__OBF_STATE_JSON__</script>
   <script>
     const obfI18n = (() => {
       try {
         const node = document.getElementById("obf-i18n");
+        return JSON.parse(node?.textContent || "{}");
+      } catch {
+        return {};
+      }
+    })();
+
+    const obfState = (() => {
+      try {
+        const node = document.getElementById("obf-state");
         return JSON.parse(node?.textContent || "{}");
       } catch {
         return {};
@@ -949,12 +968,13 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
     });
 
     var _countVal = 0;
-    var _COUNT_MAX = 9;
+    var _obfCounters = Array.isArray(obfState.counters) ? obfState.counters : [];
+    var _COUNT_MAX = Math.max(0, _obfCounters.length - 1);
     function _showCount(n) {
-      for (var i = 0; i <= _COUNT_MAX; i++) {
-        var el = document.getElementById("count-" + i);
-        if (el) el.style.display = i === n ? "" : "none";
-      }
+      var el = document.getElementById("count-current");
+      if (!el) return;
+      var v = _obfCounters[n];
+      if (typeof v === "string") el.textContent = v;
     }
     document.getElementById("btn-count-up")?.addEventListener("click", function() {
       _countVal = Math.min(_countVal + 1, _COUNT_MAX);
@@ -965,12 +985,12 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
       _showCount(0);
     });
 
-    var _statusStates = ["idle", "working", "done"];
+    var _obfStatuses = obfState.statuses && typeof obfState.statuses === "object" ? obfState.statuses : {};
     function _showStatus(s) {
-      _statusStates.forEach(function(st) {
-        var el = document.getElementById("status-" + st);
-        if (el) el.style.display = st === s ? "" : "none";
-      });
+      var el = document.getElementById("status-current");
+      if (!el) return;
+      var v = _obfStatuses[s];
+      if (typeof v === "string") el.textContent = v;
     }
     document.getElementById("btn-status-working")?.addEventListener("click", function() {
       _showStatus("working");
@@ -983,6 +1003,8 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
     });
 
     applyLanguage("ja");
+    _showCount(0);
+    _showStatus("idle");
   </script>
 </body>
 </html>`;
@@ -990,7 +1012,7 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
 
 const PAGE_TEMPLATE_HTML = basePageHtml();
 const PAGE_SELECTORS = [".secret", "#secret", ".obf-target", ".obf-dynamic"];
-const I18N_HINT_TEXT = `${Object.values(I18N.ja).join(" ")} ${Object.values(I18N.en).join(" ")}`;
+const I18N_HINT_TEXT = `${PAGE_TEMPLATE_HTML} ${Object.values(I18N.en).join(" ")}`;
 
 // Warm up source-font fetch/parse before serving traffic to reduce first-hit tofu risk.
 const prewarmPromise = obfuscator.getRotatingMapping(I18N_HINT_TEXT).then(() => undefined).catch(() => undefined);
@@ -1011,7 +1033,24 @@ async function handler(req: Request): Promise<Response> {
     variants: precomputed.variants,
     variantSeed: precomputed.seed,
   });
-  const rawHtml = PAGE_TEMPLATE_HTML.replace("__OBF_I18N_JSON__", JSON.stringify(obfI18n));
+  const obfState = obfuscateStringLeaves(
+    {
+      counters: Array.from({ length: 10 }, (_, i) => String(i)),
+      statuses: {
+        idle: "idle",
+        working: "working",
+        done: "done",
+      },
+    },
+    precomputed.mapping,
+    {
+      variants: precomputed.variants,
+      variantSeed: precomputed.seed,
+    },
+  );
+  const rawHtml = PAGE_TEMPLATE_HTML
+    .replace("__OBF_I18N_JSON__", JSON.stringify(obfI18n))
+    .replace("__OBF_STATE_JSON__", JSON.stringify(obfState));
   const html = await obfuscator.serveWithMapping(rawHtml, PAGE_SELECTORS, precomputed, {
     pageKey: url.pathname,
   });
