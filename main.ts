@@ -846,7 +846,7 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
             const id = el.id ? " id='" + el.id + "'" : "";
             return "<p" + id + " class='obf-target'>" + escapeCodePoints((el.textContent || "").trim()) + "</p>";
           })
-          .join("\n");
+            .join("\\n");
       }
       return "";
     }
