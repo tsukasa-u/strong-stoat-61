@@ -14,7 +14,7 @@ const obfuscator = new FontObfuscator({
   variantCount: 4,
   // Local Deno demo has no trusted reverse proxy.
   trustedProxies: [],
-  devMode: true,
+  devMode: Deno.env.get("DENO_ENV") === "development",
 });
 
 function basePageHtml(): string {
