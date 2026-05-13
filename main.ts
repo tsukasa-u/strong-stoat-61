@@ -968,16 +968,21 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
     });
 
     var _countVal = 0;
-    var _obfCounters = Array.isArray(obfState.counters) ? obfState.counters : [];
-    var _COUNT_MAX = Math.max(0, _obfCounters.length - 1);
+    var _obfDigits = Array.isArray(obfState.digits) ? obfState.digits : [];
     function _showCount(n) {
       var el = document.getElementById("count-current");
       if (!el) return;
-      var v = _obfCounters[n];
-      if (typeof v === "string") el.textContent = v;
+      var s = String(Math.max(0, Math.floor(n)));
+      var text = "";
+      for (var i = 0; i < s.length; i++) {
+        var d = parseInt(s[i], 10);
+        var obfChar = _obfDigits[d];
+        text += typeof obfChar === "string" ? obfChar : s[i];
+      }
+      el.textContent = text;
     }
     document.getElementById("btn-count-up")?.addEventListener("click", function() {
-      _countVal = Math.min(_countVal + 1, _COUNT_MAX);
+      _countVal += 1;
       _showCount(_countVal);
     });
     document.getElementById("btn-count-reset")?.addEventListener("click", function() {
@@ -1012,7 +1017,7 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
 
 const PAGE_TEMPLATE_HTML = basePageHtml();
 const PAGE_SELECTORS = [".secret", "#secret", ".obf-target", ".obf-dynamic"];
-const I18N_HINT_TEXT = `${PAGE_TEMPLATE_HTML} ${Object.values(I18N.en).join(" ")}`;
+const I18N_HINT_TEXT = `${PAGE_TEMPLATE_HTML} ${Object.values(I18N.en).join(" ")} 0123456789`;
 
 // Warm up source-font fetch/parse before serving traffic to reduce first-hit tofu risk.
 const prewarmPromise = obfuscator.getRotatingMapping(I18N_HINT_TEXT).then(() => undefined).catch(() => undefined);
@@ -1035,7 +1040,7 @@ async function handler(req: Request): Promise<Response> {
   });
   const obfState = obfuscateStringLeaves(
     {
-      counters: Array.from({ length: 10 }, (_, i) => String(i)),
+      digits: Array.from({ length: 10 }, (_, i) => String(i)),
       statuses: {
         idle: "idle",
         working: "working",
