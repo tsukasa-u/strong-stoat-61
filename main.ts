@@ -87,8 +87,7 @@ const obfuscator = new FontObfuscator({
   devMode: Deno.env.get("DENO_ENV") === "development",
 });
 
-function basePageHtml(lang: string = "ja"): string {
-  const t = I18N[lang as "ja" | "en"] || I18N.ja;
+function basePageHtml(): string {
   return `<!doctype html>
 <html lang="ja">
 <head>
@@ -611,9 +610,9 @@ function basePageHtml(lang: string = "ja"): string {
   <main class="app">
 
     <section class="hero">
-      <h1 class="secret">${t.title}</h1>
-      <p class="lead secret">${t.lead}</p>
-      <p class="lead-sub secret">${t.leadSub}</p>
+      <h1 class="secret"><span data-lang="ja">${I18N.ja.title}</span><span data-lang="en" style="display:none">${I18N.en.title}</span></h1>
+      <p class="lead secret"><span data-lang="ja">${I18N.ja.lead}</span><span data-lang="en" style="display:none">${I18N.en.lead}</span></p>
+      <p class="lead-sub secret"><span data-lang="ja">${I18N.ja.leadSub}</span><span data-lang="en" style="display:none">${I18N.en.leadSub}</span></p>
       <div class="lang-switch" role="group" aria-label="Language Switch">
         <button id="lang-ja" class="lang-btn active" type="button">日本語</button>
         <button id="lang-en" class="lang-btn" type="button">English</button>
@@ -621,18 +620,18 @@ function basePageHtml(lang: string = "ja"): string {
     </section>
 
     <section class="proof">
-      <p class="proof-heading secret">${t.proofTitle}</p>
+      <p class="proof-heading secret"><span data-lang="ja">${I18N.ja.proofTitle}</span><span data-lang="en" style="display:none">${I18N.en.proofTitle}</span></p>
       <div class="proof-grid">
         <div>
-          <div class="proof-col-title bad secret">${t.proofSrcLabel}</div>
+          <div class="proof-col-title bad secret"><span data-lang="ja">${I18N.ja.proofSrcLabel}</span><span data-lang="en" style="display:none">${I18N.en.proofSrcLabel}</span></div>
           <div class="proof-box proof-garbled" id="proof-source"></div>
-          <p class="proof-note secret">${t.proofSrcNote}</p>
+          <p class="proof-note secret"><span data-lang="ja">${I18N.ja.proofSrcNote}</span><span data-lang="en" style="display:none">${I18N.en.proofSrcNote}</span></p>
         </div>
-        <div class="proof-arrow secret">${t.proofArrow}</div>
+        <div class="proof-arrow secret"><span data-lang="ja">${I18N.ja.proofArrow}</span><span data-lang="en" style="display:none">${I18N.en.proofArrow}</span></div>
         <div>
-          <div class="proof-col-title good secret">${t.proofRenderLabel}</div>
+          <div class="proof-col-title good secret"><span data-lang="ja">${I18N.ja.proofRenderLabel}</span><span data-lang="en" style="display:none">${I18N.en.proofRenderLabel}</span></div>
           <div class="proof-box proof-rendered" id="proof-rendered"></div>
-          <p class="proof-note secret">${t.proofRenderNote}</p>
+          <p class="proof-note secret"><span data-lang="ja">${I18N.ja.proofRenderNote}</span><span data-lang="en" style="display:none">${I18N.en.proofRenderNote}</span></p>
         </div>
       </div>
     </section>
@@ -642,19 +641,19 @@ function basePageHtml(lang: string = "ja"): string {
       <article class="card">
         <div class="card-head">
           <div class="tag">selector: .obf-target</div>
-          <span class="badge badge-ok secret">${t.targetBadge}</span>
+          <span class="badge badge-ok secret"><span data-lang="ja">${I18N.ja.targetBadge}</span><span data-lang="en" style="display:none">${I18N.en.targetBadge}</span></span>
         </div>
         <p id="target-1" class="obf-target">この文章は難読化されます: Hello, world! こんにちは 12345</p>
         <p id="target-2" class="obf-target">同じセレクタの別要素も難読化されます。</p>
         <div class="copy-demo-row">
-          <button id="copy-demo-obf" type="button" class="btn-sm btn-ghost secret">${t.copyDemoBtn}</button>
+          <button id="copy-demo-obf" type="button" class="btn-sm btn-ghost secret"><span data-lang="ja">${I18N.ja.copyDemoBtn}</span><span data-lang="en" style="display:none">${I18N.en.copyDemoBtn}</span></button>
         </div>
         <div id="copy-result-obf" style="display:none">
-          <p class="copy-result-label secret">${t.copyResultLabel}</p>
+          <p class="copy-result-label secret"><span data-lang="ja">${I18N.ja.copyResultLabel}</span><span data-lang="en" style="display:none">${I18N.en.copyResultLabel}</span></p>
           <pre class="src-peek-code" id="copy-result-obf-text"></pre>
         </div>
         <details class="src-peek">
-          <summary class="secret">${t.srcPeekBtn}</summary>
+          <summary class="secret"><span data-lang="ja">${I18N.ja.srcPeekBtn}</span><span data-lang="en" style="display:none">${I18N.en.srcPeekBtn}</span></summary>
           <pre class="src-peek-code" id="src-peek-obf-text"></pre>
         </details>
       </article>
@@ -662,29 +661,29 @@ function basePageHtml(lang: string = "ja"): string {
       <article class="card">
         <div class="card-head">
           <div class="tag">selector: #secret</div>
-          <span class="badge badge-ok secret">${t.targetBadge}</span>
+          <span class="badge badge-ok secret"><span data-lang="ja">${I18N.ja.targetBadge}</span><span data-lang="en" style="display:none">${I18N.en.targetBadge}</span></span>
         </div>
         <p id="secret">この要素も難読化されます。</p>
         <div class="copy-demo-row">
-          <button id="copy-demo-secret" type="button" class="btn-sm btn-ghost secret">${t.copyDemoBtn}</button>
+          <button id="copy-demo-secret" type="button" class="btn-sm btn-ghost secret"><span data-lang="ja">${I18N.ja.copyDemoBtn}</span><span data-lang="en" style="display:none">${I18N.en.copyDemoBtn}</span></button>
         </div>
         <div id="copy-result-secret" style="display:none">
-          <p class="copy-result-label secret">${t.copyResultLabel}</p>
+          <p class="copy-result-label secret"><span data-lang="ja">${I18N.ja.copyResultLabel}</span><span data-lang="en" style="display:none">${I18N.en.copyResultLabel}</span></p>
           <pre class="src-peek-code" id="copy-result-secret-text"></pre>
         </div>
         <details class="src-peek">
-          <summary class="secret">${t.srcPeekBtn}</summary>
+          <summary class="secret"><span data-lang="ja">${I18N.ja.srcPeekBtn}</span><span data-lang="en" style="display:none">${I18N.en.srcPeekBtn}</span></summary>
           <pre class="src-peek-code" id="src-peek-secret-text"></pre>
         </details>
       </article>
 
       <article class="card">
         <div class="card-head">
-          <div class="tag secret" style="background:#fef3c7;border-color:#fcd34d;color:#92400e;">${t.notTargetedLabel}</div>
-          <span class="badge badge-warn secret">${t.notTargetBadge}</span>
+          <div class="tag secret" style="background:#fef3c7;border-color:#fcd34d;color:#92400e;"><span data-lang="ja">${I18N.ja.notTargetedLabel}</span><span data-lang="en" style="display:none">${I18N.en.notTargetedLabel}</span></div>
+          <span class="badge badge-warn secret"><span data-lang="ja">${I18N.ja.notTargetBadge}</span><span data-lang="en" style="display:none">${I18N.en.notTargetBadge}</span></span>
         </div>
-        <p class="plain secret">${t.plain}</p>
-        <p class="not-targeted-note secret">${t.notTargetedWarn}</p>
+        <p class="plain secret"><span data-lang="ja">${I18N.ja.plain}</span><span data-lang="en" style="display:none">${I18N.en.plain}</span></p>
+        <p class="not-targeted-note secret"><span data-lang="ja">${I18N.ja.notTargetedWarn}</span><span data-lang="en" style="display:none">${I18N.en.notTargetedWarn}</span></p>
       </article>
 
     </div>
@@ -694,9 +693,9 @@ function basePageHtml(lang: string = "ja"): string {
       <article class="card">
         <div class="card-head">
           <div class="tag">selector: .obf-dynamic</div>
-          <span class="badge badge-ok secret">${t.targetBadge}</span>
+          <span class="badge badge-ok secret"><span data-lang="ja">${I18N.ja.targetBadge}</span><span data-lang="en" style="display:none">${I18N.en.targetBadge}</span></span>
         </div>
-        <p class="dynamic-note secret">${t.counterNote}</p>
+        <p class="dynamic-note secret"><span data-lang="ja">${I18N.ja.counterNote}</span><span data-lang="en" style="display:none">${I18N.en.counterNote}</span></p>
         <div id="counter-display" style="font-size:1.6rem;font-weight:700;min-height:2.4rem;margin:0.5rem 0 0;">
           <span id="count-0" class="obf-dynamic">0</span>
           <span id="count-1" class="obf-dynamic" style="display:none">1</span>
@@ -710,26 +709,26 @@ function basePageHtml(lang: string = "ja"): string {
           <span id="count-9" class="obf-dynamic" style="display:none">9</span>
         </div>
         <div class="copy-demo-row">
-          <button id="btn-count-up" type="button" class="btn-sm secret">${t.countUpBtn}</button>
-          <button id="btn-count-reset" type="button" class="btn-sm btn-ghost secret">${t.countResetBtn}</button>
+          <button id="btn-count-up" type="button" class="btn-sm secret"><span data-lang="ja">${I18N.ja.countUpBtn}</span><span data-lang="en" style="display:none">${I18N.en.countUpBtn}</span></button>
+          <button id="btn-count-reset" type="button" class="btn-sm btn-ghost secret"><span data-lang="ja">${I18N.ja.countResetBtn}</span><span data-lang="en" style="display:none">${I18N.en.countResetBtn}</span></button>
         </div>
       </article>
 
       <article class="card">
         <div class="card-head">
           <div class="tag">selector: .obf-dynamic</div>
-          <span class="badge badge-ok secret">${t.targetBadge}</span>
+          <span class="badge badge-ok secret"><span data-lang="ja">${I18N.ja.targetBadge}</span><span data-lang="en" style="display:none">${I18N.en.targetBadge}</span></span>
         </div>
-        <p class="dynamic-note secret">${t.statusNote}</p>
+        <p class="dynamic-note secret"><span data-lang="ja">${I18N.ja.statusNote}</span><span data-lang="en" style="display:none">${I18N.en.statusNote}</span></p>
         <div id="status-display" style="font-size:1.1rem;font-weight:600;min-height:2.4rem;margin:0.5rem 0 0;">
           <span id="status-idle" class="obf-dynamic">idle</span>
           <span id="status-working" class="obf-dynamic" style="display:none">working</span>
           <span id="status-done" class="obf-dynamic" style="display:none">done</span>
         </div>
         <div class="copy-demo-row">
-          <button id="btn-status-working" type="button" class="btn-sm secret">${t.statusStartBtn}</button>
-          <button id="btn-status-done" type="button" class="btn-sm secret">${t.statusDoneBtn}</button>
-          <button id="btn-status-reset" type="button" class="btn-sm btn-ghost secret">${t.statusResetBtn}</button>
+          <button id="btn-status-working" type="button" class="btn-sm secret"><span data-lang="ja">${I18N.ja.statusStartBtn}</span><span data-lang="en" style="display:none">${I18N.en.statusStartBtn}</span></button>
+          <button id="btn-status-done" type="button" class="btn-sm secret"><span data-lang="ja">${I18N.ja.statusDoneBtn}</span><span data-lang="en" style="display:none">${I18N.en.statusDoneBtn}</span></button>
+          <button id="btn-status-reset" type="button" class="btn-sm btn-ghost secret"><span data-lang="ja">${I18N.ja.statusResetBtn}</span><span data-lang="en" style="display:none">${I18N.en.statusResetBtn}</span></button>
         </div>
       </article>
 
@@ -737,37 +736,37 @@ function basePageHtml(lang: string = "ja"): string {
 
     <section class="inspect">
       <div class="inspect-head">
-        <h2 class="inspect-title secret">${t.inspectorTitle}</h2>
+        <h2 class="inspect-title secret"><span data-lang="ja">${I18N.ja.inspectorTitle}</span><span data-lang="en" style="display:none">${I18N.en.inspectorTitle}</span></h2>
       </div>
-      <p class="inspect-note secret">${t.inspectorNote}</p>
+      <p class="inspect-note secret"><span data-lang="ja">${I18N.ja.inspectorNote}</span><span data-lang="en" style="display:none">${I18N.en.inspectorNote}</span></p>
       <div class="detail-grid">
         <section class="detail-card">
           <h3 class="detail-title">selector: .obf-target</h3>
           <div class="detail-row">
-            <span class="detail-label secret">${t.detailSourceHtml}</span>
+            <span class="detail-label secret"><span data-lang="ja">${I18N.ja.detailSourceHtml}</span><span data-lang="en" style="display:none">${I18N.en.detailSourceHtml}</span></span>
             <pre class="detail-code" id="detail-obf-source"></pre>
           </div>
           <div class="detail-row">
-            <span class="detail-label secret">${t.detailDomText}</span>
+            <span class="detail-label secret"><span data-lang="ja">${I18N.ja.detailDomText}</span><span data-lang="en" style="display:none">${I18N.en.detailDomText}</span></span>
             <pre class="detail-dom" id="detail-obf-dom"></pre>
           </div>
           <div class="detail-row">
-            <span class="detail-label secret">${t.detailRendered}</span>
+            <span class="detail-label secret"><span data-lang="ja">${I18N.ja.detailRendered}</span><span data-lang="en" style="display:none">${I18N.en.detailRendered}</span></span>
             <p class="detail-value" id="detail-obf-render"></p>
           </div>
         </section>
         <section class="detail-card">
           <h3 class="detail-title">selector: #secret</h3>
           <div class="detail-row">
-            <span class="detail-label secret">${t.detailSourceHtml}</span>
+            <span class="detail-label secret"><span data-lang="ja">${I18N.ja.detailSourceHtml}</span><span data-lang="en" style="display:none">${I18N.en.detailSourceHtml}</span></span>
             <pre class="detail-code" id="detail-secret-source"></pre>
           </div>
           <div class="detail-row">
-            <span class="detail-label secret">${t.detailDomText}</span>
+            <span class="detail-label secret"><span data-lang="ja">${I18N.ja.detailDomText}</span><span data-lang="en" style="display:none">${I18N.en.detailDomText}</span></span>
             <pre class="detail-dom" id="detail-secret-dom"></pre>
           </div>
           <div class="detail-row">
-            <span class="detail-label secret">${t.detailRendered}</span>
+            <span class="detail-label secret"><span data-lang="ja">${I18N.ja.detailRendered}</span><span data-lang="en" style="display:none">${I18N.en.detailRendered}</span></span>
             <p class="detail-value" id="detail-secret-render"></p>
           </div>
         </section>
@@ -775,14 +774,14 @@ function basePageHtml(lang: string = "ja"): string {
     </section>
 
     <section class="usage">
-      <span class="secret">${t.usageTitle}</span>
+      <span class="secret"><span data-lang="ja">${I18N.ja.usageTitle}</span><span data-lang="en" style="display:none">${I18N.en.usageTitle}</span></span>
       <code>obfuscateHtml(html, {
   selectors: [".secret", "#secret"],
 });</code>
     </section>
 
     <section class="usage">
-      <span class="secret">${t.frameworkTitle}</span>
+      <span class="secret"><span data-lang="ja">${I18N.ja.frameworkTitle}</span><span data-lang="en" style="display:none">${I18N.en.frameworkTitle}</span></span>
       <code>withNextRouteHandlerObfuscation(handler, obfuscator, { selectors })
 withRemixRequestHandlerObfuscation(handler, obfuscator, { selectors })
 withAstroEndpointObfuscation(handler, obfuscator, { selectors })
@@ -794,75 +793,6 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
   </main>
 
   <script>
-    const i18n = {
-      ja: {
-        title: "Font Obfuscator Library",
-        lead: "スクレイパー・ヘッドレスブラウザからテキストを守ります。",
-        leadSub: "HTMLのDOMを難読化し、textContent / innerText での文字列取得やコピーペーストを無効化します。ブラウザ上では人間に正しく表示されます。",
-        proofTitle: "どう守るの？",
-        proofSrcLabel: "① DOM テキスト（スクレイパーが取得するもの）",
-        proofSrcNote: "textContent や innerText で取得すると意味不明な文字コードが返る",
-        proofArrow: "→",
-        proofRenderLabel: "② ブラウザの表示（人間が見るもの）",
-        proofRenderNote: "専用フォントにより元の文字として正しく描画される",
-        targetBadge: "🔒 保護済み",
-        notTargetBadge: "⚠ 未保護",
-        notTargetedLabel: "selector: 未指定（保護なし）",
-        notTargetedWarn: "このテキストはDOM上に平文で存在します。スクレイパーがそのまま読み取れます。selectors にこの要素を追加すると保護されます。",
-        copyDemoBtn: "📋 コピーして確認",
-        copyResultLabel: "クリップボードに入った文字列（これがスクレイパーに渡るもの）",
-        srcPeekBtn: "🔍 DOM内の実際の文字コードを見る",
-        plain: "この段落は平文のままです。対象外要素は影響を受けません。",
-        usageTitle: "導入側コード例",
-        frameworkTitle: "主要フレームワーク対応",
-        inspectorTitle: "仕組みを 3 ステップで確認する",
-        inspectorNote: "保護済み要素の現在のDOM・難読化コード・描画結果を並べて確認できます。",
-        counterNote: "ボタン操作で値が変わっても DOM に平文の数値は書き込まれません。値はサーバーサイドで事前に難読化済みです。",
-        countUpBtn: "＋1",
-        countResetBtn: "リセット",
-        statusNote: "状態の切り替えは難読化済み要素の表示切替のみ。平文の文字列が DOM に現れることはありません。",
-        statusStartBtn: "Start",
-        statusDoneBtn: "Done",
-        statusResetBtn: "Reset",
-        detailSourceHtml: "① 配布HTML（難読化後のレスポンス）",
-        detailDomText: "② DOM内テキスト（難読化済み PUA 文字コード）",
-        detailRendered: "③ ブラウザ描画（人間には正しく読める）",
-      },
-      en: {
-        title: "Font Obfuscator Library",
-        lead: "Protect text from scrapers and headless browsers.",
-        leadSub: "Obfuscates the DOM so textContent / innerText return unreadable PUA codes. Copy-paste yields garbage. The browser still renders normally for human readers.",
-        proofTitle: "How does it protect?",
-        proofSrcLabel: "① DOM text (what scrapers extract)",
-        proofSrcNote: "textContent / innerText return unreadable PUA character codes",
-        proofArrow: "→",
-        proofRenderLabel: "② Browser render (what humans see)",
-        proofRenderNote: "Custom font maps PUA codes back to the real glyphs",
-        targetBadge: "🔒 Protected",
-        notTargetBadge: "⚠ Unprotected",
-        notTargetedLabel: "selector: none (no protection)",
-        notTargetedWarn: "This text is plain in the DOM. Scrapers can read it directly. Add this element to selectors to protect it.",
-        copyDemoBtn: "📋 Copy & see what you get",
-        copyResultLabel: "What went to clipboard (what scrapers would receive)",
-        srcPeekBtn: "🔍 View actual DOM character codes",
-        plain: "This paragraph stays plain text and is not targeted.",
-        usageTitle: "Integration Example",
-        frameworkTitle: "Major Framework Adapters",
-        inspectorTitle: "See how it works in 3 steps",
-        inspectorNote: "Compare the current DOM, obfuscated text, and rendered output for protected elements.",
-        counterNote: "Clicking never writes plaintext digits to the DOM. All values are pre-obfuscated server-side.",
-        countUpBtn: "+1",
-        countResetBtn: "Reset",
-        statusNote: "State transitions only toggle visibility. No plaintext string is ever written to the DOM.",
-        statusStartBtn: "Start",
-        statusDoneBtn: "Done",
-        statusResetBtn: "Reset",
-        detailSourceHtml: "① Delivered HTML (obfuscated response)",
-        detailDomText: "② DOM text (obfuscated PUA codes)",
-        detailRendered: "③ Browser render (human-readable)",
-      },
-    };
-
     let currentLang = "ja";
 
     function setLangButtons() {
@@ -874,25 +804,9 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
 
     function applyLanguage(lang) {
       currentLang = lang;
-      const t = i18n[lang];
-
-      document.querySelectorAll("[data-i18n]").forEach((el) => {
-        const key = el.getAttribute("data-i18n");
-        if (!key) return;
-        const v = t[key];
-        if (typeof v === "string") el.textContent = v;
+      document.querySelectorAll("[data-lang]").forEach((el) => {
+        el.style.display = el.dataset.lang === lang ? "" : "none";
       });
-
-      document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
-        const key = el.getAttribute("data-i18n-placeholder");
-        if (!key) return;
-        const v = t[key];
-        if (typeof v === "string") el.setAttribute("placeholder", v);
-      });
-
-      const plain = document.getElementById("plain-text");
-      if (plain) plain.textContent = t.plain;
-
       setLangButtons();
       setTimeout(refreshInspector, 0);
     }
