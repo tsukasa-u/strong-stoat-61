@@ -396,6 +396,7 @@ function basePageHtml(): string {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Font Obfuscator Library Demo</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230891b2'/%3E%3Ctext x='50%25' y='54%25' text-anchor='middle' font-size='32' font-family='Arial' fill='white'%3EF%3C/text%3E%3C/svg%3E" />
   <style nonce="__CSP_NONCE__">
     @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Noto+Sans+JP:wght@400;500;700&display=swap");
 
@@ -1233,7 +1234,7 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
       ".obf-target": [
         "<p id='target-1' class='obf-target'>この文章は難読化されます: Hello, world! こんにちは 12345</p>",
         "<p id='target-2' class='obf-target'>同じセレクタの別要素も難読化されます。</p>",
-      ].join("\n"),
+      ].join("\\n"),
       "#secret": "<p id='secret'>この要素も難読化されます。</p>",
     };
 
