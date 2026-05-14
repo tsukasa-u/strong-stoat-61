@@ -24,7 +24,7 @@ const I18N = {
     frameworkTitle: "主要フレームワーク対応",
     inspectorTitle: "仕組みを 3 ステップで確認する",
     inspectorNote: "保護済み要素の現在のDOM・難読化コード・描画結果を並べて確認できます。",
-    statusNote: "状態の切り替えはサーバー側で難読化済みの文字列を再発行します。数字状態はクライアント側の処理と関連性が強すぎるため、このライブラリでは推奨しません。",
+    statusNote: "状態文字列は配信時にサーバー側で難読化して埋め込みます。ボタンは追加通信せず、埋め込んだ値を切り替えるだけです。",
     statusStartBtn: "Start",
     statusDoneBtn: "Done",
     statusResetBtn: "Reset",
@@ -54,13 +54,28 @@ const I18N = {
     frameworkTitle: "Major Framework Adapters",
     inspectorTitle: "See how it works in 3 steps",
     inspectorNote: "Compare the current DOM, obfuscated text, and rendered output for protected elements.",
-    statusNote: "Status transitions are re-issued by the server as obfuscated text. Numeric state is intentionally not recommended because client-side processing makes those relationships too easy to exploit.",
+    statusNote: "Status strings are obfuscated on the server before delivery. The buttons only switch between the embedded values and do not make extra network requests.",
     statusStartBtn: "Start",
     statusDoneBtn: "Done",
     statusResetBtn: "Reset",
     detailSourceHtml: "① Delivered HTML (obfuscated response)",
     detailDomText: "② DOM text (obfuscated PUA codes)",
     detailRendered: "③ Browser render (human-readable)",
+  },
+} as const;
+
+const PLAIN_I18N = {
+  ja: {
+    notTargetBadge: I18N.ja.notTargetBadge,
+    notTargetedLabel: I18N.ja.notTargetedLabel,
+    plain: I18N.ja.plain,
+    notTargetedWarn: I18N.ja.notTargetedWarn,
+  },
+  en: {
+    notTargetBadge: I18N.en.notTargetBadge,
+    notTargetedLabel: I18N.en.notTargetedLabel,
+    plain: I18N.en.plain,
+    notTargetedWarn: I18N.en.notTargetedWarn,
   },
 } as const;
 
@@ -104,289 +119,37 @@ function buildCspHeader(nonce: string): string {
   ].join("; ");
 }
 
-const STATE_TOKEN_TTL_MS = 10 * 60 * 1000;
-const PAGE_SESSION_MAX_SIZE = 2000;
-
 type DynamicStatus = "idle" | "working" | "done";
-type DynamicActionKey = "1" | "2" | "3";
-
-const ACTION_KEY_TO_STATUS: Record<DynamicActionKey, DynamicStatus> = {
-  "1": "working",
-  "2": "idle",
-  "3": "done",
-};
-
-const STATUS_DISPLAY_TOKEN: Record<DynamicStatus, string> = {
-  idle: "idel",
-  working: "work",
+const STATUS_DISPLAY_TEXT: Record<DynamicStatus, string> = {
+  idle: "idle",
+  working: "working",
   done: "done",
 };
 
-interface DynamicStateTokenPayload {
-  sessionId: string;
-  status: DynamicStatus;
-  expiresAt: number;
-}
-
-interface DynamicActionTokenPayload {
-  sessionId: string;
-  actionKey: DynamicActionKey;
-  expiresAt: number;
-}
-
-interface DynamicPageSession {
-  precomputed: Awaited<ReturnType<FontObfuscator["precomputeMapping"]>>;
-  clientFingerprint: string;
-  expiresAt: number;
-}
-
-const dynamicPageSessions = new Map<string, DynamicPageSession>();
-const stateTokenKeyPromise = crypto.subtle.generateKey(
-  { name: "AES-GCM", length: 256 },
-  false,
-  ["encrypt", "decrypt"],
-);
+type PrecomputedMapping = Awaited<ReturnType<FontObfuscator["precomputeMapping"]>>;
 
 function randomU32(): number {
   return crypto.getRandomValues(new Uint32Array(1))[0] >>> 0;
 }
 
-function toBase64Url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-
-function fromBase64Url(value: string): Uint8Array | null {
-  if (!/^[A-Za-z0-9_-]+$/.test(value)) return null;
-  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
-  const padding = normalized.length % 4 === 0 ? "" : "=".repeat(4 - (normalized.length % 4));
-  try {
-    const binary = atob(normalized + padding);
-    return Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
-  } catch {
-    return null;
-  }
-}
-
-async function sealDynamicStateToken(payload: DynamicStateTokenPayload): Promise<string> {
-  const key = await stateTokenKeyPromise;
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const encoded = new TextEncoder().encode(JSON.stringify(payload));
-  const ciphertext = new Uint8Array(
-    await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded),
-  );
-  const out = new Uint8Array(iv.length + ciphertext.length);
-  out.set(iv, 0);
-  out.set(ciphertext, iv.length);
-  return toBase64Url(out);
-}
-
-async function openDynamicStateToken(token: string): Promise<DynamicStateTokenPayload | null> {
-  const bytes = fromBase64Url(token);
-  if (!bytes || bytes.length <= 12) return null;
-  const iv = bytes.slice(0, 12);
-  const ciphertext = bytes.slice(12);
-  const key = await stateTokenKeyPromise;
-
-  try {
-    const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
-    const parsed = JSON.parse(new TextDecoder().decode(plaintext)) as Partial<DynamicStateTokenPayload>;
-    if (
-      !parsed ||
-      typeof parsed.sessionId !== "string" ||
-      typeof parsed.status !== "string" ||
-      (parsed.status !== "idle" && parsed.status !== "working" && parsed.status !== "done") ||
-      typeof parsed.expiresAt !== "number" ||
-      !Number.isFinite(parsed.expiresAt)
-    ) {
-      return null;
-    }
-    return {
-      sessionId: parsed.sessionId,
-      status: parsed.status,
-      expiresAt: parsed.expiresAt,
-    };
-  } catch {
-    return null;
-  }
-}
-
-async function sealDynamicActionToken(payload: DynamicActionTokenPayload): Promise<string> {
-  const key = await stateTokenKeyPromise;
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const encoded = new TextEncoder().encode(JSON.stringify(payload));
-  const ciphertext = new Uint8Array(
-    await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded),
-  );
-  const out = new Uint8Array(iv.length + ciphertext.length);
-  out.set(iv, 0);
-  out.set(ciphertext, iv.length);
-  return toBase64Url(out);
-}
-
-async function openDynamicActionToken(token: string): Promise<DynamicActionTokenPayload | null> {
-  const bytes = fromBase64Url(token);
-  if (!bytes || bytes.length <= 12) return null;
-  const iv = bytes.slice(0, 12);
-  const ciphertext = bytes.slice(12);
-  const key = await stateTokenKeyPromise;
-
-  try {
-    const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
-    const parsed = JSON.parse(new TextDecoder().decode(plaintext)) as Partial<DynamicActionTokenPayload>;
-    if (
-      !parsed ||
-      typeof parsed.sessionId !== "string" ||
-      typeof parsed.actionKey !== "string" ||
-      (parsed.actionKey !== "1" && parsed.actionKey !== "2" && parsed.actionKey !== "3") ||
-      typeof parsed.expiresAt !== "number" ||
-      !Number.isFinite(parsed.expiresAt)
-    ) {
-      return null;
-    }
-    return {
-      sessionId: parsed.sessionId,
-      actionKey: parsed.actionKey,
-      expiresAt: parsed.expiresAt,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function cleanupDynamicPageSessions(now: number): void {
-  for (const [sessionId, session] of dynamicPageSessions) {
-    if (session.expiresAt <= now) dynamicPageSessions.delete(sessionId);
-  }
-}
-
-function storeDynamicPageSession(
-  sessionId: string,
-  session: DynamicPageSession,
-): void {
-  cleanupDynamicPageSessions(Date.now());
-  if (!dynamicPageSessions.has(sessionId) && dynamicPageSessions.size >= PAGE_SESSION_MAX_SIZE) {
-    const oldest = dynamicPageSessions.keys().next().value;
-    if (oldest !== undefined) dynamicPageSessions.delete(oldest);
-  }
-  dynamicPageSessions.set(sessionId, session);
-}
-
 function encodeDynamicValue(
   value: string,
-  session: DynamicPageSession,
+  precomputed: PrecomputedMapping,
 ): string {
-  return encodeText(value, session.precomputed.mapping, {
-    variants: session.precomputed.variants,
+  return encodeText(value, precomputed.mapping, {
+    variants: precomputed.variants,
     variantSeed: randomU32(),
   });
 }
 
-async function buildDynamicResponse(
-  state: DynamicStateTokenPayload,
-  session: DynamicPageSession,
-): Promise<Response> {
-  const actionExpiresAt = Date.now() + STATE_TOKEN_TTL_MS;
-  const [action1Token, action2Token, action3Token] = await Promise.all([
-    sealDynamicActionToken({
-      sessionId: state.sessionId,
-      actionKey: "1",
-      expiresAt: actionExpiresAt,
-    }),
-    sealDynamicActionToken({
-      sessionId: state.sessionId,
-      actionKey: "2",
-      expiresAt: actionExpiresAt,
-    }),
-    sealDynamicActionToken({
-      sessionId: state.sessionId,
-      actionKey: "3",
-      expiresAt: actionExpiresAt,
-    }),
-  ]);
-  const nextToken = await sealDynamicStateToken(state);
-  const body = JSON.stringify({
-    stateToken: nextToken,
-    statusText: encodeDynamicValue(STATUS_DISPLAY_TOKEN[state.status], session),
-    actions: {
-      "1": action1Token,
-      "2": action2Token,
-      "3": action3Token,
-    },
-  });
-  return new Response(body, {
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "no-store",
-      "x-content-type-options": "nosniff",
-    },
-  });
-}
-
-async function handleDynamicStateRequest(req: Request): Promise<Response> {
-  if (req.method !== "POST") {
-    return new Response("Method Not Allowed", {
-      status: 405,
-      headers: { allow: "POST" },
-    });
-  }
-
-  let input: unknown;
-  try {
-    input = await req.json();
-  } catch {
-    return new Response("Bad Request", { status: 400 });
-  }
-
-  if (!input || typeof input !== "object") {
-    return new Response("Bad Request", { status: 400 });
-  }
-
-  const token = (input as { token?: unknown }).token;
-  const actionToken = (input as { actionToken?: unknown }).actionToken;
-  if (typeof token !== "string" || typeof actionToken !== "string") {
-    return new Response("Bad Request", { status: 400 });
-  }
-
-  const state = await openDynamicStateToken(token);
-  if (!state) {
-    return new Response("Forbidden", { status: 403 });
-  }
-
-  const now = Date.now();
-  if (state.expiresAt <= now) {
-    dynamicPageSessions.delete(state.sessionId);
-    return new Response("Gone", { status: 410 });
-  }
-
-  cleanupDynamicPageSessions(now);
-  const session = dynamicPageSessions.get(state.sessionId);
-  if (!session || session.expiresAt <= now) {
-    dynamicPageSessions.delete(state.sessionId);
-    return new Response("Gone", { status: 410 });
-  }
-
-  if (session.clientFingerprint !== obfuscator.getClientFingerprint(req)) {
-    return new Response("Forbidden", { status: 403 });
-  }
-
-  const action = await openDynamicActionToken(actionToken);
-  if (!action) {
-    return new Response("Forbidden", { status: 403 });
-  }
-  if (action.expiresAt <= now) {
-    return new Response("Gone", { status: 410 });
-  }
-  if (action.sessionId !== state.sessionId) {
-    return new Response("Forbidden", { status: 403 });
-  }
-  state.status = ACTION_KEY_TO_STATUS[action.actionKey];
-
-  state.expiresAt = now + STATE_TOKEN_TTL_MS;
-  session.expiresAt = state.expiresAt;
-  dynamicPageSessions.set(state.sessionId, session);
-  return buildDynamicResponse(state, session);
+function buildDynamicStatusValues(
+  precomputed: PrecomputedMapping,
+): Record<DynamicStatus, string> {
+  return {
+    idle: encodeDynamicValue(STATUS_DISPLAY_TEXT.idle, precomputed),
+    working: encodeDynamicValue(STATUS_DISPLAY_TEXT.working, precomputed),
+    done: encodeDynamicValue(STATUS_DISPLAY_TEXT.done, precomputed),
+  };
 }
 
 function basePageHtml(): string {
@@ -1057,11 +820,11 @@ function basePageHtml(): string {
 
       <article class="card">
         <div class="card-head">
-          <div class="tag tag-warn" data-i18n="notTargetedLabel">${I18N.ja.notTargetedLabel}</div>
-          <span class="badge badge-warn" data-i18n="notTargetBadge">${I18N.ja.notTargetBadge}</span>
+          <div class="tag tag-warn" data-i18n-plain="notTargetedLabel">${I18N.ja.notTargetedLabel}</div>
+          <span class="badge badge-warn" data-i18n-plain="notTargetBadge">${I18N.ja.notTargetBadge}</span>
         </div>
-        <p class="plain" data-i18n="plain">${I18N.ja.plain}</p>
-        <p class="not-targeted-note" data-i18n="notTargetedWarn">${I18N.ja.notTargetedWarn}</p>
+        <p class="plain" data-i18n-plain="plain">${I18N.ja.plain}</p>
+        <p class="not-targeted-note" data-i18n-plain="notTargetedWarn">${I18N.ja.notTargetedWarn}</p>
       </article>
 
     </div>
@@ -1145,7 +908,8 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
   </main>
 
   <script nonce="__CSP_NONCE__" id="obf-i18n" type="application/json">__OBF_I18N_JSON__</script>
-  <script nonce="__CSP_NONCE__" id="obf-dynamic-state" type="application/json">__DYNAMIC_BOOTSTRAP_JSON__</script>
+  <script nonce="__CSP_NONCE__" id="obf-i18n-plain" type="application/json">__PLAIN_I18N_JSON__</script>
+  <script nonce="__CSP_NONCE__" id="obf-dynamic-values" type="application/json">__DYNAMIC_STATUS_JSON__</script>
   <script nonce="__CSP_NONCE__">
     // Hide loading overlay once the obfuscated font is ready.
     // Falls back automatically after 20 s in case of prolonged cold start.
@@ -1174,30 +938,18 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
       }
     })();
 
-    const obfI18n = (() => {
+    function parseJsonScript(id) {
       try {
-        const node = document.getElementById("obf-i18n");
+        const node = document.getElementById(id);
         return JSON.parse(node?.textContent || "{}");
       } catch {
         return {};
       }
-    })();
+    }
 
-    let dynamicStateToken = (() => {
-      try {
-        const node = document.getElementById("obf-dynamic-state");
-        const parsed = JSON.parse(node?.textContent || "{}");
-        return typeof parsed.token === "string" ? parsed.token : "";
-      } catch {
-        return "";
-      }
-    })();
-
-    let dynamicActionTokens = {
-      "1": "",
-      "2": "",
-      "3": "",
-    };
+    const obfI18n = parseJsonScript("obf-i18n");
+    const plainI18n = parseJsonScript("obf-i18n-plain");
+    const dynamicStatusValues = parseJsonScript("obf-dynamic-values");
 
     let currentLang = "ja";
 
@@ -1215,6 +967,15 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
         const key = el.getAttribute("data-i18n");
         if (!key) return;
         const value = dict[key];
+        if (typeof value === "string") {
+          el.textContent = value;
+        }
+      });
+      const plainDict = plainI18n[lang] || {};
+      document.querySelectorAll("[data-i18n-plain]").forEach((el) => {
+        const key = el.getAttribute("data-i18n-plain");
+        if (!key) return;
+        const value = plainDict[key];
         if (typeof value === "string") {
           el.textContent = value;
         }
@@ -1339,53 +1100,23 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
       showCopyResult("copy-result-secret", "copy-result-secret-text", text);
     });
 
-    function applyDynamicPayload(payload) {
-      if (!payload || typeof payload !== "object") return;
-      if (typeof payload.stateToken === "string") {
-        dynamicStateToken = payload.stateToken;
-      }
-      if (payload.actions && typeof payload.actions === "object") {
-        if (typeof payload.actions["1"] === "string") dynamicActionTokens["1"] = payload.actions["1"];
-        if (typeof payload.actions["2"] === "string") dynamicActionTokens["2"] = payload.actions["2"];
-        if (typeof payload.actions["3"] === "string") dynamicActionTokens["3"] = payload.actions["3"];
-      }
-      if (typeof payload.statusText === "string") {
-        var statusEl = document.getElementById("status-current");
-        if (statusEl) statusEl.textContent = payload.statusText;
-      }
-    }
-
-    async function requestDynamicUpdate(actionName) {
-      if (!dynamicStateToken) return;
-      var actionToken = dynamicActionTokens[actionName];
-      if (!actionToken) return;
-      try {
-        var res = await fetch("/api/state", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token: dynamicStateToken, actionToken: actionToken }),
-        });
-        if (!res.ok) {
-          if (res.status === 410) {
-            window.location.reload();
-          }
-          return;
-        }
-        var payload = await res.json();
-        applyDynamicPayload(payload);
-      } catch {
-        // Ignore transient fetch failures in the demo UI.
+    function setDynamicStatus(status) {
+      var statusEl = document.getElementById("status-current");
+      if (!statusEl) return;
+      var value = dynamicStatusValues[status];
+      if (typeof value === "string" && value.length > 0) {
+        statusEl.textContent = value;
       }
     }
 
     document.getElementById("btn-status-working")?.addEventListener("click", function() {
-      requestDynamicUpdate("1");
+      setDynamicStatus("working");
     });
     document.getElementById("btn-status-done")?.addEventListener("click", function() {
-      requestDynamicUpdate("3");
+      setDynamicStatus("done");
     });
     document.getElementById("btn-status-reset")?.addEventListener("click", function() {
-      requestDynamicUpdate("2");
+      setDynamicStatus("idle");
     });
 
     applyLanguage("ja");
@@ -1406,9 +1137,6 @@ async function handler(req: Request): Promise<Response> {
   if (fontResponse) return fontResponse;
 
   const url = new URL(req.url);
-  if (url.pathname === "/api/state") {
-    return handleDynamicStateRequest(req);
-  }
   if (url.pathname !== "/" && url.pathname !== "/index.html") {
     return new Response("Not Found", { status: 404 });
   }
@@ -1420,40 +1148,15 @@ async function handler(req: Request): Promise<Response> {
     variants: precomputed.variants,
     variantSeed: precomputed.seed,
   });
+  const dynamicStatusJson = JSON.stringify(buildDynamicStatusValues(precomputed));
   const clientFingerprint = obfuscator.getClientFingerprint(req);
   const cspNonce = createCspNonce();
-  const now = Date.now();
-  const sessionId = crypto.randomUUID();
-  const expiresAt = now + STATE_TOKEN_TTL_MS;
-  storeDynamicPageSession(sessionId, {
-    precomputed,
-    clientFingerprint,
-    expiresAt,
-  });
-  const dynamicToken = await sealDynamicStateToken({
-    sessionId,
-    status: "idle",
-    expiresAt,
-  });
-  const initialActionExpiresAt = now + STATE_TOKEN_TTL_MS;
-  const [initialAction1Token, initialAction2Token, initialAction3Token] = await Promise.all([
-    sealDynamicActionToken({ sessionId, actionKey: "1", expiresAt: initialActionExpiresAt }),
-    sealDynamicActionToken({ sessionId, actionKey: "2", expiresAt: initialActionExpiresAt }),
-    sealDynamicActionToken({ sessionId, actionKey: "3", expiresAt: initialActionExpiresAt }),
-  ]);
-  const dynamicBootstrapJson = JSON.stringify({
-    token: dynamicToken,
-    actions: {
-      "1": initialAction1Token,
-      "2": initialAction2Token,
-      "3": initialAction3Token,
-    },
-  });
   const rawHtml = PAGE_TEMPLATE_HTML
     .replace(/__CSP_NONCE__/g, () => cspNonce)
-    .replace("__INITIAL_STATUS__", () => STATUS_DISPLAY_TOKEN.idle)
-    .replace("__DYNAMIC_BOOTSTRAP_JSON__", () => dynamicBootstrapJson)
-    .replace("__OBF_I18N_JSON__", () => JSON.stringify(obfI18n));
+    .replace("__INITIAL_STATUS__", () => STATUS_DISPLAY_TEXT.idle)
+    .replace("__DYNAMIC_STATUS_JSON__", () => dynamicStatusJson)
+    .replace("__OBF_I18N_JSON__", () => JSON.stringify(obfI18n))
+    .replace("__PLAIN_I18N_JSON__", () => JSON.stringify(PLAIN_I18N));
   let html = await obfuscator.serveWithMapping(rawHtml, PAGE_SELECTORS, precomputed, {
     pageKey: url.pathname,
     clientFingerprint,
