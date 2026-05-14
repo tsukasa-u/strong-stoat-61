@@ -31,7 +31,7 @@ function renderPage(pathname: string): string {
 
 async function baseHandler(req: Request): Promise<Response> {
   const pathname = new URL(req.url).pathname;
-  if (!["/", "/counter", "/pre-encoded"].includes(pathname)) {
+  if (!["/", "/pre-encoded"].includes(pathname)) {
     return new Response("Not Found", { status: 404 });
   }
   const rawHtml = renderPage(pathname);

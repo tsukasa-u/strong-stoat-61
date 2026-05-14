@@ -13,7 +13,6 @@ function DemoLayout(props: { title: string; heading: string; children: ReactNode
         <h1>{props.heading}</h1>
         <nav>
           <a href="/">基本難読化</a>
-          <a href="/counter">カウント</a>
           <a href="/pre-encoded">事前難読化状態</a>
         </nav>
         {props.children}
@@ -23,27 +22,14 @@ function DemoLayout(props: { title: string; heading: string; children: ReactNode
 }
 
 function pageCard(pathname: string): { title: string; body: ReactNode } {
-  if (pathname === "/counter") {
-    return {
-      title: "カウントデモ",
-      body: (
-        <div className="card">
-          <h2>数値カウント</h2>
-          <p className="secret">現在値: 42</p>
-          <p>カウント表示の難読化サンプルです。</p>
-        </div>
-      ),
-    };
-  }
-
   if (pathname === "/pre-encoded") {
     return {
       title: "事前難読化状態デモ",
       body: (
         <div className="card">
           <h2>事前エンコード済み状態</h2>
-          <p className="secret">secure-state: 17</p>
-          <p>サーバー側で事前難読化した値を利用する例です。</p>
+          <p className="secret">workflow-state: cedar</p>
+          <p>サーバー側で事前難読化した文字列状態を利用する例です。</p>
         </div>
       ),
     };

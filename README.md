@@ -49,6 +49,8 @@ if (fontRes) return fontRes;
 - Obfuscate only sensitive server-rendered text (minimal selector scope).
 - Keep normal app state in framework-native state management.
 - Do not treat hydration-managed or client-side DOM updates as obfuscation guarantees.
+- Treat dynamic state transitions as a design boundary: when state values are sensitive, compute the next state on the server and return only obfuscated strings to the client.
+- Keep client-side state updates for ergonomics only (non-sensitive UI state). Do not assume client-side transitions are protected just because the initial HTML was obfuscated.
 
 ## Core APIs
 
@@ -95,6 +97,8 @@ Use: obfuscate nested language dictionaries (`{ ja, en, ... }`).
 - `obfuscateStringLeaves(state, mapping, options?)`
 Use: obfuscate only string leaves in JSON-like state.
 
+`obfuscateStringLeaves` leaves numbers and booleans untouched. Do not treat client-visible numeric state or counters as protected data; if a numeric transition matters, compute it server-side and return the next obfuscated string instead.
+
 ```ts
 import {
   FontObfuscator,
@@ -115,7 +119,7 @@ const obfI18n = obfuscateI18nDictionary(
 );
 
 const obfState = obfuscateStringLeaves(
-  { status: "idle", count: 1, labels: ["Start", "Done"] },
+  { status: "idle", phase: "review", labels: ["Start", "Done"] },
   pm.mapping,
   { variants: pm.variants, variantSeed: pm.seed },
 );
@@ -173,13 +177,15 @@ Supplementary mode is experimental. Validate rendering on your target devices be
 - Apply on server-rendered HTML responses.
 - Keep token/session TTL short for better resistance.
 - Avoid leaking plaintext in API payloads or embedded JSON.
+- Avoid client-visible numeric counters or arithmetic-derived state when you are trying to protect dynamic values; return the next obfuscated string from the server instead.
+- Apply the same caution to non-numeric state as well: status/flags/labels can also leak transition patterns if the client computes or exposes them directly.
 
 ## Examples
 
 See [examples/README.md](examples/README.md).
 
 - Next/Nuxt/Remix separate `/` interactive UI/state demos from `/protected` obfuscated HTML demos.
-- Astro separates `/` client-side DOM updates from `/counter` and `/pre-encoded` obfuscated HTML demos.
+- Astro separates `/` client-side DOM updates from `/pre-encoded` obfuscated HTML demos.
 - The Vue sample is SSR-only.
 
 ## Local Verification

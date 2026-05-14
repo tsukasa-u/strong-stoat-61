@@ -61,7 +61,7 @@ const testConfigs: TestConfig[] = [
     url: "http://127.0.0.1:8013/",
     launchCommand: "pnpm exec tsx examples/sveltekit/main.ts",
     hasInteractiveButton: true,
-    stateTextIndicators: ["status:", "tags:", "profile:", "secure-state:"],
+    stateTextIndicators: ["status:", "tags:", "profile:"],
     protectedTextIndicators: [
       "このテキストは難読化されます",
       "Hello World",
@@ -73,7 +73,7 @@ const testConfigs: TestConfig[] = [
     url: "http://127.0.0.1:3004/",
     launchCommand: "cd examples/solidstart && CHOKIDAR_USEPOLLING=1 WATCHPACK_POLLING=true pnpm dev --host 127.0.0.1 --port 3004",
     hasInteractiveButton: true,
-    stateTextIndicators: ["status:", "tags:", "profile:", "secure-state:"],
+    stateTextIndicators: ["status:", "tags:", "profile:"],
     protectedTextIndicators: [
       "このテキストは難読化されます",
       "Hello World",
@@ -85,7 +85,7 @@ const testConfigs: TestConfig[] = [
     url: "http://127.0.0.1:8012/",
     launchCommand: "pnpm exec tsx examples/astro/main.ts",
     hasInteractiveButton: true,
-    stateTextIndicators: ["count:", "secure-state:"],
+    stateTextIndicators: ["status:", "tags:", "profile:"],
     protectedTextIndicators: [
       "このテキストは難読化されます",
       "Hello World",
@@ -100,11 +100,10 @@ const testConfigs: TestConfig[] = [
     protectedTextIndicators: [
       "このテキストは難読化されます",
       "Hello World",
-      "現在値: 42",
       "status: working",
       "tags: alpha, beta",
       "profile: Aki (editor)",
-      "secure-state: c3",
+      "workflow-state: cedar",
     ],
     expectFontInjection: true,
   },

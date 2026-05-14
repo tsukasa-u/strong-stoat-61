@@ -10,7 +10,7 @@
 pnpm build
 ```
 
-2. スモーク検証を実行:
+1. スモーク検証を実行:
 
 ```bash
 pnpm verify:examples
@@ -35,9 +35,10 @@ pnpm exec tsx scripts/playwright-browser-test.ts
 難読化は middleware / adapter が変換したサーバーHTMLに適用されます。
 
 hydration や client-side DOM 更新がある場合、その後の再描画は難読化保証の外です。
+インタラクティブサンプルでは、client-side の算術処理で関係性が見えやすい数値カウンタを意図的に扱っていません。
 
 - Next/Nuxt/Remix の `/` はインタラクティブ状態管理デモ、`/protected` は難読化HTML確認デモ
-- Astro の `/` は client-side DOM 更新デモ、`/counter` と `/pre-encoded` は難読化HTML確認デモ
+- Astro の `/` は client-side DOM 更新デモ、`/pre-encoded` は難読化HTML確認デモ
 - Vue サンプルは SSR-only で、クライアント hydration は行いません
 
 ## 補助PUAを有効化する
@@ -47,9 +48,9 @@ hydration や client-side DOM 更新がある場合、その後の再描画は�
 
 ```ts
 const obfuscator = new FontObfuscator({
-	fontUrl: "https://.../NotoSansJP[wght].ttf",
-	fontRoutePrefix: "/_obf/font",
-	puaPlaneMode: "bmp+supplementary",
+  fontUrl: "https://.../NotoSansJP[wght].ttf",
+  fontRoutePrefix: "/_obf/font",
+  puaPlaneMode: "bmp+supplementary",
 });
 ```
 

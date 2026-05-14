@@ -15,39 +15,61 @@ const title = 'Astro Example';
   <body style="min-height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;margin:0">
     <h1>Astro example</h1>
     <p>Client-side updates below are intentionally shown as plain text.</p>
-    <p>Open <a href="/counter">/counter</a> and <a href="/pre-encoded">/pre-encoded</a> to see obfuscated server HTML examples.</p>
+    <p>Numeric counters are intentionally omitted because client-side arithmetic makes those relationships too obvious.</p>
+    <p>Open <a href="/pre-encoded">/pre-encoded</a> to see the obfuscated server HTML example.</p>
 
     <h2>1) 通常文字列の難読化</h2>
     <p class="secret">このテキストは難読化されます。Hello World</p>
 
-    <h2>2) 数値カウント</h2>
+    <h2>2) 文字列状態</h2>
     <div>
-      <button id="btn-count">Count</button>
-      <button id="btn-reset">Reset</button>
+      <button id="btn-status-working">Start</button>
+      <button id="btn-status-done">Done</button>
+      <button id="btn-status-reset">Reset</button>
     </div>
-    <p id="cnt">count: 0</p>
-
-    <h2>3) 事前エンコード済み状態</h2>
     <div>
-      <button id="btn-secure-next">Next Secure</button>
-      <button id="btn-secure-reset">Reset Secure</button>
+      <button id="btn-tag-add">Add tag</button>
+      <button id="btn-role-toggle">Toggle role</button>
     </div>
-    <p id="secure-state">secure-state: c3</p>
+    <p id="status-current">status: idle</p>
+    <p id="tags-current">tags: alpha, beta</p>
+    <p id="profile-current">profile: Aki (editor)</p>
 
     <script>
-      let c = 0;
-      const secure = { encoded: ["a1", "b2", "c3", "d4"], indices: [2, 0, 3, 1], pos: 0 };
-      const el = document.getElementById('cnt')!;
-      const secureEl = document.getElementById('secure-state')!;
-      document.getElementById('btn-count')!.addEventListener('click', () => { el.textContent = `count: ${++c}`; });
-      document.getElementById('btn-reset')!.addEventListener('click', () => { c = 0; el.textContent = 'count: 0'; });
-      document.getElementById('btn-secure-next')!.addEventListener('click', () => {
-        secure.pos = Math.min(secure.pos + 1, secure.indices.length - 1);
-        secureEl.textContent = `secure-state: ${secure.encoded[secure.indices[secure.pos]]}`;
+      const tagOptions = ["gamma", "delta", "omega", "sigma"];
+      let status = 'idle';
+      let tags = ['alpha', 'beta'];
+      let profile = { name: 'Aki', role: 'editor' };
+      const statusEl = document.getElementById('status-current');
+      const tagsEl = document.getElementById('tags-current');
+      const profileEl = document.getElementById('profile-current');
+
+      function render() {
+        if (statusEl) statusEl.textContent = `status: ${status}`;
+        if (tagsEl) tagsEl.textContent = `tags: ${tags.join(', ')}`;
+        if (profileEl) profileEl.textContent = `profile: ${profile.name} (${profile.role})`;
+      }
+
+      document.getElementById('btn-status-working')?.addEventListener('click', () => {
+        status = 'working';
+        render();
       });
-      document.getElementById('btn-secure-reset')!.addEventListener('click', () => {
-        secure.pos = 0;
-        secureEl.textContent = `secure-state: ${secure.encoded[secure.indices[secure.pos]]}`;
+      document.getElementById('btn-status-done')?.addEventListener('click', () => {
+        status = 'done';
+        render();
+      });
+      document.getElementById('btn-status-reset')?.addEventListener('click', () => {
+        status = 'idle';
+        render();
+      });
+      document.getElementById('btn-tag-add')?.addEventListener('click', () => {
+        const next = tagOptions.find((tag) => !tags.includes(tag));
+        if (next) tags = [...tags, next];
+        render();
+      });
+      document.getElementById('btn-role-toggle')?.addEventListener('click', () => {
+        profile = { ...profile, role: profile.role === 'editor' ? 'admin' : 'editor' };
+        render();
       });
     </script>
   </body>

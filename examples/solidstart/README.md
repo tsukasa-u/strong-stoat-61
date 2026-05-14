@@ -21,3 +21,4 @@ pnpm dev
 
 This example already wires response transformation in `src/middleware.ts`.
 Only server-rendered HTML transformed by middleware is obfuscated; client-side state updates after hydration are shown as plain text.
+Numeric counters are intentionally omitted from the route example; prefer string/object state and server-issued obfuscated transitions for protected dynamic values.

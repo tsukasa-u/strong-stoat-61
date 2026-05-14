@@ -7,14 +7,14 @@
     <h2>1) 通常文字列の難読化</h2>
     <p class="secret">このテキストは難読化されます。Hello World</p>
 
-    <h2>2) サーバー描画値の難読化</h2>
-    <p class="secret">現在値: 42</p>
+    <h2>2) サーバー描画状態の難読化</h2>
     <p class="secret">status: working</p>
     <p class="secret">tags: alpha, beta</p>
     <p class="secret">profile: Aki (editor)</p>
+    <p>数値カウンタのような関係性の強い状態は、このサンプルでは intentionally omitted としています。</p>
 
-    <h2>3) 事前エンコード済み状態</h2>
-    <p class="secret">secure-state: c3</p>
+    <h2>3) 事前エンコード済み文字列状態</h2>
+    <p class="secret">workflow-state: cedar</p>
   </main>
 </template>
 

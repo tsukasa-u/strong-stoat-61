@@ -198,12 +198,12 @@ verify_workers_typecheck() {
 verify_one examples/fetch/main.ts 8003 fetch
 verify_one examples/fetch/jsxExample.jsx 8014 fetch-jsx
 verify_one examples/fetch/main.tsx 8015 fetch-tsx
-verify_one examples/hono/main.ts 8001 hono / /counter /pre-encoded
+verify_one examples/hono/main.ts 8001 hono / /pre-encoded
 verify_one examples/next/main.ts 8010 next-adapter /protected
 verify_one examples/remix/main.ts 8011 remix-adapter
-verify_one examples/astro/main.ts 8012 astro-adapter / /counter /pre-encoded
+verify_one examples/astro/main.ts 8012 astro-adapter / /pre-encoded
 verify_one examples/sveltekit/main.ts 8013 sveltekit-adapter
-verify_one examples/react/main.tsx 8020 react / /counter /pre-encoded
+verify_one examples/react/main.tsx 8020 react / /pre-encoded
 verify_one_cmd "pnpm --dir examples/vue exec vite-node --config vite.config.ts main.ts" 8021 vue
 
 verify_source_example examples/bun/main.ts bun

@@ -59,6 +59,5 @@ export function registerDemoRoutes(app: Express, obfuscator: FontObfuscator): vo
   };
 
   app.get("/", pageHandler);
-  app.get("/counter", pageHandler);
   app.get("/pre-encoded", pageHandler);
 }

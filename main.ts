@@ -1,4 +1,4 @@
-import { FontObfuscator, obfuscateI18nDictionary, obfuscateStringLeaves } from "./lib/index.ts";
+import { FontObfuscator, encodeText, obfuscateI18nDictionary } from "./lib/index.ts";
 
 // Server-side i18n: All UI text for both languages (encrypted after server processing)
 const I18N = {
@@ -24,10 +24,7 @@ const I18N = {
     frameworkTitle: "主要フレームワーク対応",
     inspectorTitle: "仕組みを 3 ステップで確認する",
     inspectorNote: "保護済み要素の現在のDOM・難読化コード・描画結果を並べて確認できます。",
-    counterNote: "ボタン操作で値が変わっても DOM に平文の数値は書き込まれません。値はサーバーサイドで事前に難読化済みです。",
-    countUpBtn: "＋1",
-    countResetBtn: "リセット",
-    statusNote: "状態の切り替えは難読化済み要素の表示切替のみ。平文の文字列が DOM に現れることはありません。",
+    statusNote: "状態の切り替えはサーバー側で難読化済みの文字列を再発行します。数字状態はクライアント側の処理と関連性が強すぎるため、このライブラリでは推奨しません。",
     statusStartBtn: "Start",
     statusDoneBtn: "Done",
     statusResetBtn: "Reset",
@@ -57,10 +54,7 @@ const I18N = {
     frameworkTitle: "Major Framework Adapters",
     inspectorTitle: "See how it works in 3 steps",
     inspectorNote: "Compare the current DOM, obfuscated text, and rendered output for protected elements.",
-    counterNote: "Clicking never writes plaintext digits to the DOM. All values are pre-obfuscated server-side.",
-    countUpBtn: "+1",
-    countResetBtn: "Reset",
-    statusNote: "State transitions only toggle visibility. No plaintext string is ever written to the DOM.",
+    statusNote: "Status transitions are re-issued by the server as obfuscated text. Numeric state is intentionally not recommended because client-side processing makes those relationships too easy to exploit.",
     statusStartBtn: "Start",
     statusDoneBtn: "Done",
     statusResetBtn: "Reset",
@@ -89,6 +83,312 @@ const obfuscator = new FontObfuscator({
       .Deno?.env?.get?.("DENO_ENV") === "development",
 });
 
+function createCspNonce(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function buildCspHeader(nonce: string): string {
+  return [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}'`,
+    `style-src 'self' 'nonce-${nonce}' https://fonts.googleapis.com`,
+    "font-src 'self' https://fonts.gstatic.com",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+  ].join("; ");
+}
+
+const STATE_TOKEN_TTL_MS = 10 * 60 * 1000;
+const PAGE_SESSION_MAX_SIZE = 2000;
+
+type DynamicStatus = "idle" | "working" | "done";
+type DynamicActionKey = "1" | "2" | "3";
+
+const ACTION_KEY_TO_STATUS: Record<DynamicActionKey, DynamicStatus> = {
+  "1": "working",
+  "2": "idle",
+  "3": "done",
+};
+
+const STATUS_DISPLAY_TOKEN: Record<DynamicStatus, string> = {
+  idle: "idel",
+  working: "work",
+  done: "done",
+};
+
+interface DynamicStateTokenPayload {
+  sessionId: string;
+  status: DynamicStatus;
+  expiresAt: number;
+}
+
+interface DynamicActionTokenPayload {
+  sessionId: string;
+  actionKey: DynamicActionKey;
+  expiresAt: number;
+}
+
+interface DynamicPageSession {
+  precomputed: Awaited<ReturnType<FontObfuscator["precomputeMapping"]>>;
+  clientFingerprint: string;
+  expiresAt: number;
+}
+
+const dynamicPageSessions = new Map<string, DynamicPageSession>();
+const stateTokenKeyPromise = crypto.subtle.generateKey(
+  { name: "AES-GCM", length: 256 },
+  false,
+  ["encrypt", "decrypt"],
+);
+
+function randomU32(): number {
+  return crypto.getRandomValues(new Uint32Array(1))[0] >>> 0;
+}
+
+function toBase64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function fromBase64Url(value: string): Uint8Array | null {
+  if (!/^[A-Za-z0-9_-]+$/.test(value)) return null;
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padding = normalized.length % 4 === 0 ? "" : "=".repeat(4 - (normalized.length % 4));
+  try {
+    const binary = atob(normalized + padding);
+    return Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
+  } catch {
+    return null;
+  }
+}
+
+async function sealDynamicStateToken(payload: DynamicStateTokenPayload): Promise<string> {
+  const key = await stateTokenKeyPromise;
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encoded = new TextEncoder().encode(JSON.stringify(payload));
+  const ciphertext = new Uint8Array(
+    await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded),
+  );
+  const out = new Uint8Array(iv.length + ciphertext.length);
+  out.set(iv, 0);
+  out.set(ciphertext, iv.length);
+  return toBase64Url(out);
+}
+
+async function openDynamicStateToken(token: string): Promise<DynamicStateTokenPayload | null> {
+  const bytes = fromBase64Url(token);
+  if (!bytes || bytes.length <= 12) return null;
+  const iv = bytes.slice(0, 12);
+  const ciphertext = bytes.slice(12);
+  const key = await stateTokenKeyPromise;
+
+  try {
+    const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
+    const parsed = JSON.parse(new TextDecoder().decode(plaintext)) as Partial<DynamicStateTokenPayload>;
+    if (
+      !parsed ||
+      typeof parsed.sessionId !== "string" ||
+      typeof parsed.status !== "string" ||
+      (parsed.status !== "idle" && parsed.status !== "working" && parsed.status !== "done") ||
+      typeof parsed.expiresAt !== "number" ||
+      !Number.isFinite(parsed.expiresAt)
+    ) {
+      return null;
+    }
+    return {
+      sessionId: parsed.sessionId,
+      status: parsed.status,
+      expiresAt: parsed.expiresAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function sealDynamicActionToken(payload: DynamicActionTokenPayload): Promise<string> {
+  const key = await stateTokenKeyPromise;
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encoded = new TextEncoder().encode(JSON.stringify(payload));
+  const ciphertext = new Uint8Array(
+    await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded),
+  );
+  const out = new Uint8Array(iv.length + ciphertext.length);
+  out.set(iv, 0);
+  out.set(ciphertext, iv.length);
+  return toBase64Url(out);
+}
+
+async function openDynamicActionToken(token: string): Promise<DynamicActionTokenPayload | null> {
+  const bytes = fromBase64Url(token);
+  if (!bytes || bytes.length <= 12) return null;
+  const iv = bytes.slice(0, 12);
+  const ciphertext = bytes.slice(12);
+  const key = await stateTokenKeyPromise;
+
+  try {
+    const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
+    const parsed = JSON.parse(new TextDecoder().decode(plaintext)) as Partial<DynamicActionTokenPayload>;
+    if (
+      !parsed ||
+      typeof parsed.sessionId !== "string" ||
+      typeof parsed.actionKey !== "string" ||
+      (parsed.actionKey !== "1" && parsed.actionKey !== "2" && parsed.actionKey !== "3") ||
+      typeof parsed.expiresAt !== "number" ||
+      !Number.isFinite(parsed.expiresAt)
+    ) {
+      return null;
+    }
+    return {
+      sessionId: parsed.sessionId,
+      actionKey: parsed.actionKey,
+      expiresAt: parsed.expiresAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function cleanupDynamicPageSessions(now: number): void {
+  for (const [sessionId, session] of dynamicPageSessions) {
+    if (session.expiresAt <= now) dynamicPageSessions.delete(sessionId);
+  }
+}
+
+function storeDynamicPageSession(
+  sessionId: string,
+  session: DynamicPageSession,
+): void {
+  cleanupDynamicPageSessions(Date.now());
+  if (!dynamicPageSessions.has(sessionId) && dynamicPageSessions.size >= PAGE_SESSION_MAX_SIZE) {
+    const oldest = dynamicPageSessions.keys().next().value;
+    if (oldest !== undefined) dynamicPageSessions.delete(oldest);
+  }
+  dynamicPageSessions.set(sessionId, session);
+}
+
+function encodeDynamicValue(
+  value: string,
+  session: DynamicPageSession,
+): string {
+  return encodeText(value, session.precomputed.mapping, {
+    variants: session.precomputed.variants,
+    variantSeed: randomU32(),
+  });
+}
+
+async function buildDynamicResponse(
+  state: DynamicStateTokenPayload,
+  session: DynamicPageSession,
+): Promise<Response> {
+  const actionExpiresAt = Date.now() + STATE_TOKEN_TTL_MS;
+  const [action1Token, action2Token, action3Token] = await Promise.all([
+    sealDynamicActionToken({
+      sessionId: state.sessionId,
+      actionKey: "1",
+      expiresAt: actionExpiresAt,
+    }),
+    sealDynamicActionToken({
+      sessionId: state.sessionId,
+      actionKey: "2",
+      expiresAt: actionExpiresAt,
+    }),
+    sealDynamicActionToken({
+      sessionId: state.sessionId,
+      actionKey: "3",
+      expiresAt: actionExpiresAt,
+    }),
+  ]);
+  const nextToken = await sealDynamicStateToken(state);
+  const body = JSON.stringify({
+    stateToken: nextToken,
+    statusText: encodeDynamicValue(STATUS_DISPLAY_TOKEN[state.status], session),
+    actions: {
+      "1": action1Token,
+      "2": action2Token,
+      "3": action3Token,
+    },
+  });
+  return new Response(body, {
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
+    },
+  });
+}
+
+async function handleDynamicStateRequest(req: Request): Promise<Response> {
+  if (req.method !== "POST") {
+    return new Response("Method Not Allowed", {
+      status: 405,
+      headers: { allow: "POST" },
+    });
+  }
+
+  let input: unknown;
+  try {
+    input = await req.json();
+  } catch {
+    return new Response("Bad Request", { status: 400 });
+  }
+
+  if (!input || typeof input !== "object") {
+    return new Response("Bad Request", { status: 400 });
+  }
+
+  const token = (input as { token?: unknown }).token;
+  const actionToken = (input as { actionToken?: unknown }).actionToken;
+  if (typeof token !== "string" || typeof actionToken !== "string") {
+    return new Response("Bad Request", { status: 400 });
+  }
+
+  const state = await openDynamicStateToken(token);
+  if (!state) {
+    return new Response("Forbidden", { status: 403 });
+  }
+
+  const now = Date.now();
+  if (state.expiresAt <= now) {
+    dynamicPageSessions.delete(state.sessionId);
+    return new Response("Gone", { status: 410 });
+  }
+
+  cleanupDynamicPageSessions(now);
+  const session = dynamicPageSessions.get(state.sessionId);
+  if (!session || session.expiresAt <= now) {
+    dynamicPageSessions.delete(state.sessionId);
+    return new Response("Gone", { status: 410 });
+  }
+
+  if (session.clientFingerprint !== obfuscator.getClientFingerprint(req)) {
+    return new Response("Forbidden", { status: 403 });
+  }
+
+  const action = await openDynamicActionToken(actionToken);
+  if (!action) {
+    return new Response("Forbidden", { status: 403 });
+  }
+  if (action.expiresAt <= now) {
+    return new Response("Gone", { status: 410 });
+  }
+  if (action.sessionId !== state.sessionId) {
+    return new Response("Forbidden", { status: 403 });
+  }
+  state.status = ACTION_KEY_TO_STATUS[action.actionKey];
+
+  state.expiresAt = now + STATE_TOKEN_TTL_MS;
+  session.expiresAt = state.expiresAt;
+  dynamicPageSessions.set(state.sessionId, session);
+  return buildDynamicResponse(state, session);
+}
+
 function basePageHtml(): string {
   return `<!doctype html>
 <html lang="ja">
@@ -96,7 +396,7 @@ function basePageHtml(): string {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Font Obfuscator Library Demo</title>
-  <style>
+  <style nonce="__CSP_NONCE__">
     @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Noto+Sans+JP:wght@400;500;700&display=swap");
 
     :root {
@@ -111,6 +411,7 @@ function basePageHtml(): string {
       --ok: #059669;
       --ok-bg: #ecfdf5;
       --ok-line: #6ee7b7;
+      --danger-ink: #b91c1c;
       --warn: #b45309;
       --warn-bg: #fffbeb;
       --warn-line: #fcd34d;
@@ -369,6 +670,12 @@ function basePageHtml(): string {
       color: var(--warn);
     }
 
+    .tag-warn {
+      background: #fef3c7;
+      border-color: #fcd34d;
+      color: #92400e;
+    }
+
     p { margin: 0.72rem 0 0; }
 
     .plain { color: var(--ink-muted); }
@@ -613,6 +920,27 @@ function basePageHtml(): string {
       line-height: 1.5;
     }
 
+    .dynamic-display {
+      margin: 0.5rem 0 0;
+      min-height: 2.4rem;
+    }
+
+    .dynamic-display-counter {
+    }
+
+    .dynamic-display-status {
+      font-family: "Noto Sans JP", "Yu Gothic", "Hiragino Kaku Gothic ProN", sans-serif;
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--ok);
+    }
+
+    .overlay-note {
+      margin: 0;
+      color: var(--ink-muted);
+      font-size: 0.9rem;
+    }
+
     .dynamic-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -654,7 +982,7 @@ function basePageHtml(): string {
 <body>
   <div id="font-loading-overlay" role="status" aria-label="読み込み中">
     <div class="font-spinner"></div>
-    <p style="margin:0;color:var(--ink-muted);font-size:0.9rem;">フォントを読み込み中...</p>
+    <p class="overlay-note">フォントを読み込み中...</p>
   </div>
   <main class="app">
 
@@ -697,7 +1025,7 @@ function basePageHtml(): string {
         <div class="copy-demo-row">
           <button id="copy-demo-obf" type="button" class="btn-sm btn-ghost secret" data-i18n="copyDemoBtn">${I18N.ja.copyDemoBtn}</button>
         </div>
-        <div id="copy-result-obf" style="display:none">
+        <div id="copy-result-obf" hidden>
           <p class="copy-result-label secret" data-i18n="copyResultLabel">${I18N.ja.copyResultLabel}</p>
           <pre class="src-peek-code" id="copy-result-obf-text"></pre>
         </div>
@@ -716,7 +1044,7 @@ function basePageHtml(): string {
         <div class="copy-demo-row">
           <button id="copy-demo-secret" type="button" class="btn-sm btn-ghost secret" data-i18n="copyDemoBtn">${I18N.ja.copyDemoBtn}</button>
         </div>
-        <div id="copy-result-secret" style="display:none">
+        <div id="copy-result-secret" hidden>
           <p class="copy-result-label secret" data-i18n="copyResultLabel">${I18N.ja.copyResultLabel}</p>
           <pre class="src-peek-code" id="copy-result-secret-text"></pre>
         </div>
@@ -728,11 +1056,11 @@ function basePageHtml(): string {
 
       <article class="card">
         <div class="card-head">
-          <div class="tag secret" style="background:#fef3c7;border-color:#fcd34d;color:#92400e;" data-i18n="notTargetedLabel">${I18N.ja.notTargetedLabel}</div>
-          <span class="badge badge-warn secret" data-i18n="notTargetBadge">${I18N.ja.notTargetBadge}</span>
+          <div class="tag tag-warn" data-i18n="notTargetedLabel">${I18N.ja.notTargetedLabel}</div>
+          <span class="badge badge-warn" data-i18n="notTargetBadge">${I18N.ja.notTargetBadge}</span>
         </div>
-        <p class="plain secret" data-i18n="plain">${I18N.ja.plain}</p>
-        <p class="not-targeted-note secret" data-i18n="notTargetedWarn">${I18N.ja.notTargetedWarn}</p>
+        <p class="plain" data-i18n="plain">${I18N.ja.plain}</p>
+        <p class="not-targeted-note" data-i18n="notTargetedWarn">${I18N.ja.notTargetedWarn}</p>
       </article>
 
     </div>
@@ -744,24 +1072,9 @@ function basePageHtml(): string {
           <div class="tag">selector: .obf-dynamic</div>
           <span class="badge badge-ok secret" data-i18n="targetBadge">${I18N.ja.targetBadge}</span>
         </div>
-        <p class="dynamic-note secret" data-i18n="counterNote">${I18N.ja.counterNote}</p>
-        <div id="counter-display" style="font-size:1.6rem;font-weight:700;min-height:2.4rem;margin:0.5rem 0 0;">
-          <span id="count-current" class="obf-dynamic">0</span>
-        </div>
-        <div class="copy-demo-row">
-          <button id="btn-count-up" type="button" class="btn-sm secret" data-i18n="countUpBtn">${I18N.ja.countUpBtn}</button>
-          <button id="btn-count-reset" type="button" class="btn-sm btn-ghost secret" data-i18n="countResetBtn">${I18N.ja.countResetBtn}</button>
-        </div>
-      </article>
-
-      <article class="card">
-        <div class="card-head">
-          <div class="tag">selector: .obf-dynamic</div>
-          <span class="badge badge-ok secret" data-i18n="targetBadge">${I18N.ja.targetBadge}</span>
-        </div>
         <p class="dynamic-note secret" data-i18n="statusNote">${I18N.ja.statusNote}</p>
-        <div id="status-display" style="font-size:1.1rem;font-weight:600;min-height:2.4rem;margin:0.5rem 0 0;">
-          <span id="status-current" class="obf-dynamic">idle</span>
+        <div id="status-display" class="dynamic-display dynamic-display-status">
+          <span id="status-current" class="obf-dynamic">__INITIAL_STATUS__</span>
         </div>
         <div class="copy-demo-row">
           <button id="btn-status-working" type="button" class="btn-sm secret" data-i18n="statusStartBtn">${I18N.ja.statusStartBtn}</button>
@@ -830,9 +1143,9 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
 
   </main>
 
-  <script id="obf-i18n" type="application/json">__OBF_I18N_JSON__</script>
-  <script id="obf-state" type="application/json">__OBF_STATE_JSON__</script>
-  <script>
+  <script nonce="__CSP_NONCE__" id="obf-i18n" type="application/json">__OBF_I18N_JSON__</script>
+  <script nonce="__CSP_NONCE__" id="obf-dynamic-state" type="application/json">__DYNAMIC_BOOTSTRAP_JSON__</script>
+  <script nonce="__CSP_NONCE__">
     // Hide loading overlay once the obfuscated font is ready.
     // Falls back automatically after 20 s in case of prolonged cold start.
     (function() {
@@ -869,14 +1182,21 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
       }
     })();
 
-    const obfState = (() => {
+    let dynamicStateToken = (() => {
       try {
-        const node = document.getElementById("obf-state");
-        return JSON.parse(node?.textContent || "{}");
+        const node = document.getElementById("obf-dynamic-state");
+        const parsed = JSON.parse(node?.textContent || "{}");
+        return typeof parsed.token === "string" ? parsed.token : "";
       } catch {
-        return {};
+        return "";
       }
     })();
+
+    let dynamicActionTokens = {
+      "1": "",
+      "2": "",
+      "3": "",
+    };
 
     let currentLang = "ja";
 
@@ -909,19 +1229,16 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
         .join("\\n---\\n");
     }
 
+    const sourceHtmlBySelector = {
+      ".obf-target": [
+        "<p id='target-1' class='obf-target'>この文章は難読化されます: Hello, world! こんにちは 12345</p>",
+        "<p id='target-2' class='obf-target'>同じセレクタの別要素も難読化されます。</p>",
+      ].join("\n"),
+      "#secret": "<p id='secret'>この要素も難読化されます。</p>",
+    };
+
     function sourceHtmlForSelector(selector) {
-      if (selector === "#secret") {
-        return "<p id='secret'>" + escapeCodePoints(collectSelectorText("#secret")) + "</p>";
-      }
-      if (selector === ".obf-target") {
-        return Array.from(document.querySelectorAll(".obf-target"))
-          .map((el) => {
-            const id = el.id ? " id='" + el.id + "'" : "";
-            return "<p" + id + " class='obf-target'>" + escapeCodePoints((el.textContent || "").trim()) + "</p>";
-          })
-            .join("\\n");
-      }
-      return "";
+      return sourceHtmlBySelector[selector] || "";
     }
 
     function syncRenderPreview(selector, outputId) {
@@ -1003,7 +1320,7 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
       const container = document.getElementById(resultContainerId);
       const pre = document.getElementById(resultTextId);
       if (!container || !pre) return;
-      container.style.display = "block";
+      container.hidden = false;
       pre.textContent = escapeCodePoints(text);
     }
 
@@ -1021,49 +1338,56 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
       showCopyResult("copy-result-secret", "copy-result-secret-text", text);
     });
 
-    var _countVal = 0;
-    var _obfDigits = Array.isArray(obfState.digits) ? obfState.digits : [];
-    function _showCount(n) {
-      var el = document.getElementById("count-current");
-      if (!el) return;
-      var s = String(Math.max(0, Math.floor(n)));
-      var text = "";
-      for (var i = 0; i < s.length; i++) {
-        var d = parseInt(s[i], 10);
-        var obfChar = _obfDigits[d];
-        text += typeof obfChar === "string" ? obfChar : s[i];
+    function applyDynamicPayload(payload) {
+      if (!payload || typeof payload !== "object") return;
+      if (typeof payload.stateToken === "string") {
+        dynamicStateToken = payload.stateToken;
       }
-      el.textContent = text;
+      if (payload.actions && typeof payload.actions === "object") {
+        if (typeof payload.actions["1"] === "string") dynamicActionTokens["1"] = payload.actions["1"];
+        if (typeof payload.actions["2"] === "string") dynamicActionTokens["2"] = payload.actions["2"];
+        if (typeof payload.actions["3"] === "string") dynamicActionTokens["3"] = payload.actions["3"];
+      }
+      if (typeof payload.statusText === "string") {
+        var statusEl = document.getElementById("status-current");
+        if (statusEl) statusEl.textContent = payload.statusText;
+      }
     }
-    document.getElementById("btn-count-up")?.addEventListener("click", function() {
-      _countVal += 1;
-      _showCount(_countVal);
-    });
-    document.getElementById("btn-count-reset")?.addEventListener("click", function() {
-      _countVal = 0;
-      _showCount(0);
-    });
 
-    var _obfStatuses = obfState.statuses && typeof obfState.statuses === "object" ? obfState.statuses : {};
-    function _showStatus(s) {
-      var el = document.getElementById("status-current");
-      if (!el) return;
-      var v = _obfStatuses[s];
-      if (typeof v === "string") el.textContent = v;
+    async function requestDynamicUpdate(actionName) {
+      if (!dynamicStateToken) return;
+      var actionToken = dynamicActionTokens[actionName];
+      if (!actionToken) return;
+      try {
+        var res = await fetch("/api/state", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ token: dynamicStateToken, actionToken: actionToken }),
+        });
+        if (!res.ok) {
+          if (res.status === 410) {
+            window.location.reload();
+          }
+          return;
+        }
+        var payload = await res.json();
+        applyDynamicPayload(payload);
+      } catch {
+        // Ignore transient fetch failures in the demo UI.
+      }
     }
+
     document.getElementById("btn-status-working")?.addEventListener("click", function() {
-      _showStatus("working");
+      requestDynamicUpdate("1");
     });
     document.getElementById("btn-status-done")?.addEventListener("click", function() {
-      _showStatus("done");
+      requestDynamicUpdate("3");
     });
     document.getElementById("btn-status-reset")?.addEventListener("click", function() {
-      _showStatus("idle");
+      requestDynamicUpdate("2");
     });
 
     applyLanguage("ja");
-    _showCount(0);
-    _showStatus("idle");
   </script>
 </body>
 </html>`;
@@ -1071,7 +1395,7 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code>
 
 const PAGE_TEMPLATE_HTML = basePageHtml();
 const PAGE_SELECTORS = [".secret", "#secret", ".obf-target", ".obf-dynamic"];
-const I18N_HINT_TEXT = `${PAGE_TEMPLATE_HTML} ${Object.values(I18N.en).join(" ")} 0123456789`;
+const I18N_HINT_TEXT = `${PAGE_TEMPLATE_HTML} ${Object.values(I18N.en).join(" ")} idle working done`;
 
 // Warm up source-font fetch/parse before serving traffic to reduce first-hit tofu risk.
 const prewarmPromise = obfuscator.getRotatingMapping(I18N_HINT_TEXT).then(() => undefined).catch(() => undefined);
@@ -1081,6 +1405,9 @@ async function handler(req: Request): Promise<Response> {
   if (fontResponse) return fontResponse;
 
   const url = new URL(req.url);
+  if (url.pathname === "/api/state") {
+    return handleDynamicStateRequest(req);
+  }
   if (url.pathname !== "/" && url.pathname !== "/index.html") {
     return new Response("Not Found", { status: 404 });
   }
@@ -1092,33 +1419,52 @@ async function handler(req: Request): Promise<Response> {
     variants: precomputed.variants,
     variantSeed: precomputed.seed,
   });
-  const obfState = obfuscateStringLeaves(
-    {
-      digits: Array.from({ length: 10 }, (_, i) => String(i)),
-      statuses: {
-        idle: "idle",
-        working: "working",
-        done: "done",
-      },
+  const clientFingerprint = obfuscator.getClientFingerprint(req);
+  const cspNonce = createCspNonce();
+  const now = Date.now();
+  const sessionId = crypto.randomUUID();
+  const expiresAt = now + STATE_TOKEN_TTL_MS;
+  storeDynamicPageSession(sessionId, {
+    precomputed,
+    clientFingerprint,
+    expiresAt,
+  });
+  const dynamicToken = await sealDynamicStateToken({
+    sessionId,
+    status: "idle",
+    expiresAt,
+  });
+  const initialActionExpiresAt = now + STATE_TOKEN_TTL_MS;
+  const [initialAction1Token, initialAction2Token, initialAction3Token] = await Promise.all([
+    sealDynamicActionToken({ sessionId, actionKey: "1", expiresAt: initialActionExpiresAt }),
+    sealDynamicActionToken({ sessionId, actionKey: "2", expiresAt: initialActionExpiresAt }),
+    sealDynamicActionToken({ sessionId, actionKey: "3", expiresAt: initialActionExpiresAt }),
+  ]);
+  const dynamicBootstrapJson = JSON.stringify({
+    token: dynamicToken,
+    actions: {
+      "1": initialAction1Token,
+      "2": initialAction2Token,
+      "3": initialAction3Token,
     },
-    precomputed.mapping,
-    {
-      variants: precomputed.variants,
-      variantSeed: precomputed.seed,
-    },
-  );
+  });
   const rawHtml = PAGE_TEMPLATE_HTML
-    .replace("__OBF_I18N_JSON__", JSON.stringify(obfI18n))
-    .replace("__OBF_STATE_JSON__", JSON.stringify(obfState));
+    .replace(/__CSP_NONCE__/g, () => cspNonce)
+    .replace("__INITIAL_STATUS__", () => STATUS_DISPLAY_TOKEN.idle)
+    .replace("__DYNAMIC_BOOTSTRAP_JSON__", () => dynamicBootstrapJson)
+    .replace("__OBF_I18N_JSON__", () => JSON.stringify(obfI18n));
   let html = await obfuscator.serveWithMapping(rawHtml, PAGE_SELECTORS, precomputed, {
     pageKey: url.pathname,
+    clientFingerprint,
   });
+
+  html = html.replace("<style>@font-face", `<style nonce="${cspNonce}">@font-face`);
 
   // Inject <link rel="preload"> so the browser starts fetching the scrambled
   // font as early as possible, reducing the visible loading window.
   const fontSrcMatch = html.match(/src:url\("(\/_obf\/font\/[^"]+)"\)/);
   if (fontSrcMatch) {
-    const preloadTag = `<link rel="preload" as="font" type="font/truetype" crossorigin href="${fontSrcMatch[1]}">`;
+    const preloadTag = `<link rel="preload" as="font" crossorigin href="${fontSrcMatch[1]}">`;
     html = html.replace("</head>", preloadTag + "</head>");
   }
 
@@ -1126,6 +1472,8 @@ async function handler(req: Request): Promise<Response> {
     headers: {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
+      "content-security-policy": buildCspHeader(cspNonce),
+      "x-content-type-options": "nosniff",
     },
   });
 }

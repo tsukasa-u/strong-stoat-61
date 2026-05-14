@@ -60,6 +60,5 @@ export function registerDemoRoutes(app: FastifyInstance, obfuscator: FontObfusca
   };
 
   app.get("/", pageHandler);
-  app.get("/counter", pageHandler);
   app.get("/pre-encoded", pageHandler);
 }

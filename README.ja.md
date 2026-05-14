@@ -49,6 +49,8 @@ if (fontRes) return fontRes;
 - 機密性のあるサーバー描画テキストだけを `selectors` で指定
 - 通常のアプリ状態はフレームワーク標準の状態管理で扱う
 - hydration後や client-side DOM 更新後のクライアント表示を難読化保証として扱わない
+- 動的な状態遷移は設計上の境界として扱ってください。機密な状態値を扱う場合は、サーバー側で次状態を計算し、クライアントには難読化済み文字列だけを返す構成にしてください。
+- クライアント側の状態更新は UX のための非機密状態に限定し、初期HTMLを難読化したことを理由にクライアント遷移まで保護されるとみなさないでください。
 
 ## APIガイド（用途別）
 
@@ -92,6 +94,8 @@ if (fontRes) return fontRes;
 - `obfuscateStringLeaves(state, mapping, options?)`
 用途: JSON-like状態の「文字列leafだけ」を難読化（数値/真偽値は保持）。
 
+`obfuscateStringLeaves` は数値や真偽値をそのまま残します。クライアントから見える数値状態やカウンタを保護対象として扱うのは推奨しません。数値遷移を守りたい場合は、サーバー側で次状態を計算し、次の難読化済み文字列だけを返してください。
+
 既存のi18n辞書・状態構造を保ったまま、クライアントへ渡す値だけを難読化したい場合に使います。
 
 ```ts
@@ -114,7 +118,7 @@ const obfI18n = obfuscateI18nDictionary(
 );
 
 const obfState = obfuscateStringLeaves(
-  { status: "idle", count: 1, labels: ["Start", "Done"] },
+  { status: "idle", phase: "review", labels: ["Start", "Done"] },
   pm.mapping,
   { variants: pm.variants, variantSeed: pm.seed },
 );
@@ -171,13 +175,15 @@ const obfuscator = new FontObfuscator({
 - DRMではなく抽出コストを上げる仕組みです。
 - サーバー描画HTMLに適用してください。
 - TTLを短めにし、APIや埋め込みJSONへの平文残存を避けてください。
+- 動的な値を守りたい場合、クライアントから見える数値カウンタや算術ベースの状態は避け、サーバーから次の難読化済み文字列を返してください。
+- この注意は数値以外の状態にも当てはまります。status/flag/label なども、クライアント側で計算・露出すると遷移パターンの漏えいにつながる可能性があります。
 
 ## サンプル
 
 [examples/README.ja.md](examples/README.ja.md) を参照してください。
 
 - Next/Nuxt/Remix は `/` をインタラクティブデモ、`/protected` を難読化HTML確認に分離しています
-- Astro は `/` を client-side DOM 更新デモ、`/counter` と `/pre-encoded` を難読化HTML確認に分離しています
+- Astro は `/` を client-side DOM 更新デモ、`/pre-encoded` を難読化HTML確認に分離しています
 - Vue サンプルは SSR-only です
 
 ## ローカル検証

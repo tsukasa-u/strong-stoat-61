@@ -13,6 +13,7 @@ Important:
 - `/` is hydration-first UI and state ergonomics demo.
 - `/protected` is the copy-resistance demo route.
 - Keep `.secret` on server-rendered protected HTML, not hydration-managed dynamic state.
+- Numeric counters are intentionally omitted from `/`; prefer string/object state and server-issued obfuscated transitions for protected dynamic values.
 
 ## Run
 
