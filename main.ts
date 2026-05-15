@@ -1164,14 +1164,6 @@ async function handler(req: Request): Promise<Response> {
 
   html = html.replace("<style>@font-face", `<style nonce="${cspNonce}">@font-face`);
 
-  // Inject <link rel="preload"> so the browser starts fetching the scrambled
-  // font as early as possible, reducing the visible loading window.
-  const fontSrcMatch = html.match(/src:url\("(\/_obf\/font\/[^"]+)"\)/);
-  if (fontSrcMatch) {
-    const preloadTag = `<link rel="preload" as="font" crossorigin href="${fontSrcMatch[1]}">`;
-    html = html.replace("</head>", preloadTag + "</head>");
-  }
-
   return new Response(html, {
     headers: {
       "content-type": "text/html; charset=utf-8",
