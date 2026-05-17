@@ -1,8 +1,19 @@
 {
   "name": "font-obfuscator",
   "version": "0.1.0",
+  "description": "Server-side HTML font obfuscation library.",
   "private": false,
+  "license": "MIT",
   "type": "module",
+  "packageManager": "pnpm@10.20.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tsukasa-u/strong-stoat-61.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tsukasa-u/strong-stoat-61/issues"
+  },
+  "homepage": "https://github.com/tsukasa-u/strong-stoat-61#readme",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
