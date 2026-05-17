@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { FontObfuscator } from "font-obfuscator";
+import type { FontObfuscator } from "pua-font-obfuscator";
 import { renderDisasterView } from "../views/disasterViews.ts";
 
 const SELECTORS = [".secret"];

@@ -1,10 +1,10 @@
-import { FontObfuscator } from "font-obfuscator";
+import { FontObfuscator } from "pua-font-obfuscator";
 
 /**
  * Shared FontObfuscator singleton for the Nuxt server.
  *
- * IMPORTANT: Both server/middleware/font-obfuscator.ts (which serves the one-time
- * font download) and server/plugins/font-obfuscator.ts (which injects font tickets
+ * IMPORTANT: Both server/middleware/pua-font-obfuscator.ts (which serves the one-time
+ * font download) and server/plugins/pua-font-obfuscator.ts (which injects font tickets
  * into HTML) **must** use this same instance.  A separate instance would have a
  * different HMAC signing key, causing every font request to fail with 403.
  */

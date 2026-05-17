@@ -3,7 +3,7 @@ import { FontObfuscator, encodeText, obfuscateI18nDictionary } from "./lib/index
 // Server-side i18n: All UI text for both languages (encrypted after server processing)
 const I18N = {
   ja: {
-    title: "Font Obfuscator Library",
+    title: "PUA Font Obfuscator Library",
     lead: "スクレイパー・ヘッドレスブラウザからテキストを守ります。",
     leadSub: "HTMLのDOMを難読化し、textContent / innerText での文字列取得やコピーペーストを無効化します。ブラウザ上では人間に正しく表示されます。",
     proofTitle: "どう守るの？",
@@ -33,7 +33,7 @@ const I18N = {
     detailRendered: "③ ブラウザ描画（人間には正しく読める）",
   },
   en: {
-    title: "Font Obfuscator Library",
+    title: "PUA Font Obfuscator Library",
     lead: "Protect text from scrapers and headless browsers.",
     leadSub: "Obfuscates the DOM so textContent / innerText return unreadable PUA codes. Copy-paste yields garbage. The browser still renders normally for human readers.",
     proofTitle: "How does it protect?",
@@ -158,7 +158,7 @@ function basePageHtml(): string {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Font Obfuscator Library Demo</title>
+  <title>PUA Font Obfuscator Library Demo</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230891b2'/%3E%3Ctext x='50%25' y='54%25' text-anchor='middle' font-size='32' font-family='Arial' fill='white'%3EF%3C/text%3E%3C/svg%3E" />
   <style nonce="__CSP_NONCE__">
     @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Noto+Sans+JP:wght@400;500;700&display=swap");

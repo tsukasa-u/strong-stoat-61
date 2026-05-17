@@ -1,7 +1,7 @@
 # PUA容量調査レポート（内部開発者向け）
 
 作成日: 2026-05-04
-対象: Font Obfuscator の文字割り当て戦略（PUA上限、衝突回避、将来拡張）
+対象: PUA Font Obfuscator の文字割り当て戦略（PUA上限、衝突回避、将来拡張）
 
 注記（2026-05-06）:
 - 実装コード上では Phase A（budgetPolicy/adaptive allocator）および Phase B（frequency-weighted allocator）は実装済み。

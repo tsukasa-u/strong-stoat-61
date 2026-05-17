@@ -7,7 +7,7 @@
 
 import { createSSRApp } from "vue";
 import { renderToString } from "@vue/server-renderer";
-import { FontObfuscator } from "font-obfuscator";
+import { FontObfuscator } from "pua-font-obfuscator";
 import { serveFetch } from "../../lib/nodeServer.ts";
 import App from "./App.vue";
 
@@ -20,7 +20,7 @@ const obfuscator = new FontObfuscator({
   budgetPolicy: "adaptive",
   variantAllocator: "frequency-weighted",
   onBudgetDegrade: (e) =>
-    console.warn(`[font-obfuscator] variant shortfall: ${e.variantShortfall}/${e.totalChars} chars`),
+    console.warn(`[pua-font-obfuscator] variant shortfall: ${e.variantShortfall}/${e.totalChars} chars`),
 });
 
 const SELECTORS = [".secret"];
@@ -29,7 +29,7 @@ async function baseHandler(req: Request): Promise<Response> {
   const app = createSSRApp(App);
 
   const appHtml = await renderToString(app);
-  const rawHtml = `<!doctype html><html lang="ja"><head><meta charset="utf-8" /><title>Vue SSR + Font Obfuscator</title></head><body>${appHtml}</body></html>`;
+  const rawHtml = `<!doctype html><html lang="ja"><head><meta charset="utf-8" /><title>Vue SSR + PUA Font Obfuscator</title></head><body>${appHtml}</body></html>`;
 
   const html = await obfuscator.obfuscateHtml(rawHtml, {
     selectors: SELECTORS,

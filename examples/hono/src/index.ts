@@ -1,6 +1,6 @@
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
-import { FontObfuscator, withHonoObfuscation } from "font-obfuscator";
+import { FontObfuscator, withHonoObfuscation } from "pua-font-obfuscator";
 import { registerDemoRoutes } from "./routes/registerDemoRoutes.ts";
 
 const obfuscator = new FontObfuscator({
@@ -10,7 +10,7 @@ const obfuscator = new FontObfuscator({
   budgetPolicy: "adaptive",
   variantAllocator: "frequency-weighted",
   onBudgetDegrade: (e) =>
-    console.warn(`[font-obfuscator] variant shortfall: ${e.variantShortfall}/${e.totalChars} chars`),
+    console.warn(`[pua-font-obfuscator] variant shortfall: ${e.variantShortfall}/${e.totalChars} chars`),
 });
 
 const port = Number(process.env.PORT ?? 3000);

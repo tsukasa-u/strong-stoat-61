@@ -7,7 +7,7 @@
  */
 
 import { renderToStaticMarkup } from "react-dom/server";
-import { FontObfuscator } from "font-obfuscator";
+import { FontObfuscator } from "pua-font-obfuscator";
 import { serveFetch } from "../../lib/nodeServer.ts";
 import { ReactPage } from "./src/Page.tsx";
 
@@ -20,7 +20,7 @@ const obfuscator = new FontObfuscator({
   budgetPolicy: "adaptive",
   variantAllocator: "frequency-weighted",
   onBudgetDegrade: (e) =>
-    console.warn(`[font-obfuscator] variant shortfall: ${e.variantShortfall}/${e.totalChars} chars`),
+    console.warn(`[pua-font-obfuscator] variant shortfall: ${e.variantShortfall}/${e.totalChars} chars`),
 });
 
 const SELECTORS = [".secret"];

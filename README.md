@@ -1,11 +1,11 @@
-# Font Obfuscator
+# PUA Font Obfuscator
 
 Language:
 
 - English (this file)
 - Japanese: [README.ja.md](README.ja.md)
 
-Font Obfuscator is a server-side HTML obfuscation library.
+PUA Font Obfuscator is a server-side HTML obfuscation library.
 It remaps selected text to PUA code points and injects a one-time font ticket,
 so text remains readable on screen but harder to extract from copied raw text.
 
@@ -14,13 +14,13 @@ so text remains readable on screen but harder to extract from copied raw text.
 ### Step 1: Install
 
 ```bash
-pnpm add font-obfuscator
+pnpm add pua-font-obfuscator
 ```
 
 ### Step 2: Wrap your HTML response handler
 
 ```ts
-import { FontObfuscator, withFetchObfuscation } from "font-obfuscator";
+import { FontObfuscator, withFetchObfuscation } from "pua-font-obfuscator";
 
 const obfuscator = new FontObfuscator({
   fontUrl: "https://.../NotoSansJP[wght].ttf",
@@ -104,7 +104,7 @@ import {
   FontObfuscator,
   obfuscateI18nDictionary,
   obfuscateStringLeaves,
-} from "font-obfuscator";
+} from "pua-font-obfuscator";
 
 const obfuscator = new FontObfuscator({ fontUrl: "https://.../font.ttf" });
 const pm = await obfuscator.getRotatingMapping("<p>hint text</p>");

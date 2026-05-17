@@ -10,7 +10,7 @@
  *   pnpm example:fetch:jsx
  */
 
-import { FontObfuscator, withFetchObfuscation } from "font-obfuscator";
+import { FontObfuscator, withFetchObfuscation } from "pua-font-obfuscator";
 import { serveFetch } from "../../lib/nodeServer.ts";
 
 const FONT_URL =
@@ -22,7 +22,7 @@ const obfuscator = new FontObfuscator({
   budgetPolicy: "adaptive",
   variantAllocator: "frequency-weighted",
   onBudgetDegrade: (e) =>
-    console.warn(`[font-obfuscator] variant shortfall: ${e.variantShortfall}/${e.totalChars} chars`),
+    console.warn(`[pua-font-obfuscator] variant shortfall: ${e.variantShortfall}/${e.totalChars} chars`),
 });
 
 function h(tag, props, ...children) {

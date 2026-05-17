@@ -1,5 +1,5 @@
 import type { Handle } from "@sveltejs/kit";
-import { FontObfuscator } from "font-obfuscator";
+import { FontObfuscator } from "pua-font-obfuscator";
 
 const obfuscator = new FontObfuscator({
   fontUrl:

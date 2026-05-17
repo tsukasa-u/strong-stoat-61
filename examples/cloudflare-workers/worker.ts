@@ -1,5 +1,5 @@
 /**
- * Cloudflare Workers example — Font Obfuscator
+ * Cloudflare Workers example — PUA Font Obfuscator
  *
  * Deploy:
  *   pnpm install
@@ -16,7 +16,7 @@
  * For stricter limits, front the Worker with Cloudflare Rate Limiting rules.
  */
 
-import { FontObfuscator, withFetchObfuscation } from "font-obfuscator";
+import { FontObfuscator, withFetchObfuscation } from "pua-font-obfuscator";
 
 const FONT_URL =
   "https://raw.githubusercontent.com/google/fonts/main/ofl/notosansjp/NotoSansJP%5Bwght%5D.ttf";
@@ -30,7 +30,7 @@ const obfuscator = new FontObfuscator({
   budgetPolicy: "adaptive",
   variantAllocator: "frequency-weighted",
   onBudgetDegrade: (e) =>
-    console.warn(`[font-obfuscator] variant shortfall: ${e.variantShortfall}/${e.totalChars} chars`),
+    console.warn(`[pua-font-obfuscator] variant shortfall: ${e.variantShortfall}/${e.totalChars} chars`),
 });
 
 function baseHandler(_req: Request): Response {
@@ -39,7 +39,7 @@ function baseHandler(_req: Request): Response {
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <title>Cloudflare Workers + Font Obfuscator</title>
+  <title>Cloudflare Workers + PUA Font Obfuscator</title>
 </head>
 <body>
   <h1>Cloudflare Workers example</h1>

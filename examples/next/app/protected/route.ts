@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import {
   FontObfuscator,
   withNextRouteHandlerObfuscation,
-} from "font-obfuscator";
+} from "pua-font-obfuscator";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";

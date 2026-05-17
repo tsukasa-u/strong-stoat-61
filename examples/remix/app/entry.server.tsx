@@ -3,7 +3,7 @@ import { createReadableStreamFromReadable } from "@remix-run/node";
 import { RemixServer } from "@remix-run/react";
 import { renderToPipeableStream } from "react-dom/server";
 import { PassThrough } from "node:stream";
-import { withRemixRequestHandlerObfuscation } from "font-obfuscator";
+import { withRemixRequestHandlerObfuscation } from "pua-font-obfuscator";
 import { obfuscator, OBF_SELECTORS } from "./obfuscator.server";
 
 async function baseHandleRequest(

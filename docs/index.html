@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Font Obfuscator Docs</title>
+  <title>PUA Font Obfuscator Docs</title>
   <style>
     :root {
       --bg: #f4f5f7;
@@ -139,7 +139,7 @@ withFetchObfuscation(handler, obfuscator, { selectors })</code></pre>
 
     <section class="card">
       <h2 data-i18n="quickTitle"></h2>
-      <pre><code>import { FontObfuscator, withFetchObfuscation } from "font-obfuscator";
+      <pre><code>import { FontObfuscator, withFetchObfuscation } from "pua-font-obfuscator";
 
 const obfuscator = new FontObfuscator({
   fontUrl: "https://.../NotoSansCJKjp-Regular.otf",
@@ -155,7 +155,7 @@ const handler = withFetchObfuscation(appHandler, obfuscator, {
   <script>
     const i18n = {
       en: {
-        title: "Font Obfuscator Documentation (GitHub Pages)",
+        title: "PUA Font Obfuscator Documentation (GitHub Pages)",
         lead: "This static site explains integration. Runtime obfuscation should run on a server/edge runtime.",
         ghTitle: "GitHub Pages Hosting Strategy",
         ghNote: "GitHub Pages is static hosting. Tokenized runtime font endpoints cannot execute on Pages alone.",
@@ -166,7 +166,7 @@ const handler = withFetchObfuscation(appHandler, obfuscator, {
         quickTitle: "Quick Integration",
       },
       ja: {
-        title: "Font Obfuscator ドキュメント (GitHub Pages)",
+        title: "PUA Font Obfuscator ドキュメント (GitHub Pages)",
         lead: "この静的サイトは導入説明用です。実際の難読化ランタイムはサーバー/エッジで動かしてください。",
         ghTitle: "GitHub Pages を考慮した運用",
         ghNote: "GitHub Pages は静的配信のため、token 付きフォント配信エンドポイントを単体では実行できません。",

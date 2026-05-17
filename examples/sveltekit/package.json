@@ -1,5 +1,5 @@
 {
-  "name": "font-obfuscator-example-sveltekit",
+  "name": "pua-font-obfuscator-example-sveltekit",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,7 @@
   "dependencies": {
     "@sveltejs/adapter-auto": "^4.0.0",
     "@sveltejs/kit": "^2.12.0",
-    "font-obfuscator": "workspace:*",
+    "pua-font-obfuscator": "workspace:*",
     "svelte": "^5.0.0"
   },
   "devDependencies": {

@@ -1,4 +1,4 @@
-import { FontObfuscator } from "font-obfuscator";
+import { FontObfuscator } from "pua-font-obfuscator";
 
 const FONT_URL =
   "https://raw.githubusercontent.com/google/fonts/main/ofl/notosansjp/NotoSansJP%5Bwght%5D.ttf";

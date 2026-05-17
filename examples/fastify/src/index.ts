@@ -1,5 +1,5 @@
 import Fastify from "fastify";
-import { FontObfuscator } from "font-obfuscator";
+import { FontObfuscator } from "pua-font-obfuscator";
 import { registerDemoRoutes } from "./routes/demoRoutes.ts";
 
 const app = Fastify();

@@ -1,12 +1,12 @@
 /**
- * Hono example — Font Obfuscator adapter
+ * Hono example — PUA Font Obfuscator adapter
  *
  * Run:
  *   pnpm example:hono
  */
 
 import { Hono } from "hono";
-import { FontObfuscator, withHonoObfuscation } from "font-obfuscator";
+import { FontObfuscator, withHonoObfuscation } from "pua-font-obfuscator";
 import { serveFetch } from "../../lib/nodeServer.ts";
 import { registerDemoRoutes } from "./src/routes/registerDemoRoutes.ts";
 
@@ -19,7 +19,7 @@ const obfuscator = new FontObfuscator({
   budgetPolicy: "adaptive",
   variantAllocator: "frequency-weighted",
   onBudgetDegrade: (e) =>
-    console.warn(`[font-obfuscator] variant shortfall: ${e.variantShortfall}/${e.totalChars} chars`),
+    console.warn(`[pua-font-obfuscator] variant shortfall: ${e.variantShortfall}/${e.totalChars} chars`),
 });
 
 // ── base Hono app ──────────────────────────────────────────────────────────

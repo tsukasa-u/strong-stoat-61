@@ -3,7 +3,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-# Examples import the package name (font-obfuscator), so ensure dist/ exists.
+# Examples import the package name (pua-font-obfuscator), so ensure dist/ exists.
 pnpm build >/dev/null
 
 verify_one() {
@@ -127,7 +127,7 @@ verify_source_example() {
   local file="$1"
   local name="$2"
 
-  if ! grep -q 'from "font-obfuscator"' "$file"; then
+  if ! grep -q 'from "pua-font-obfuscator"' "$file"; then
     echo "$name:MISSING_PACKAGE_IMPORT"
     return
   fi

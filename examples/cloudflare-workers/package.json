@@ -1,5 +1,5 @@
 {
-  "name": "font-obfuscator-cloudflare-workers-example",
+  "name": "pua-font-obfuscator-cloudflare-workers-example",
   "version": "0.0.0",
   "private": true,
   "scripts": {
@@ -7,7 +7,7 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
-    "font-obfuscator": "workspace:*"
+    "pua-font-obfuscator": "workspace:*"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.0.0",

@@ -1,5 +1,5 @@
 {
-  "name": "font-obfuscator-example-remix",
+  "name": "pua-font-obfuscator-example-remix",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,7 @@
   "dependencies": {
     "@remix-run/node": "^2.15.0",
     "@remix-run/react": "^2.15.0",
-    "font-obfuscator": "workspace:*",
+    "pua-font-obfuscator": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

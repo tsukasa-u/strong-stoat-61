@@ -1,11 +1,11 @@
-# Font Obfuscator
+# PUA Font Obfuscator
 
 Language:
 
 - 日本語 (このファイル)
 - English: [README.md](README.md)
 
-Font Obfuscator は、サーバーサイドHTML難読化ライブラリです。
+PUA Font Obfuscator は、サーバーサイドHTML難読化ライブラリです。
 選択テキストをPUAへ再マップし、ワンタイムフォントチケットを注入することで、
 画面表示を維持しながら生テキスト抽出の難易度を上げます。
 
@@ -14,13 +14,13 @@ Font Obfuscator は、サーバーサイドHTML難読化ライブラリです。
 ### Step 1: インストール
 
 ```bash
-pnpm add font-obfuscator
+pnpm add pua-font-obfuscator
 ```
 
 ### Step 2: HTMLレスポンスハンドラをラップ
 
 ```ts
-import { FontObfuscator, withFetchObfuscation } from "font-obfuscator";
+import { FontObfuscator, withFetchObfuscation } from "pua-font-obfuscator";
 
 const obfuscator = new FontObfuscator({
   fontUrl: "https://.../NotoSansJP[wght].ttf",
@@ -103,7 +103,7 @@ import {
   FontObfuscator,
   obfuscateI18nDictionary,
   obfuscateStringLeaves,
-} from "font-obfuscator";
+} from "pua-font-obfuscator";
 
 const obfuscator = new FontObfuscator({ fontUrl: "https://.../font.ttf" });
 const pm = await obfuscator.getRotatingMapping("<p>hint text</p>");

@@ -1,12 +1,12 @@
 {
-  "name": "font-obfuscator-example-react-ssr",
+  "name": "pua-font-obfuscator-example-react-ssr",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "tsx main.tsx"
   },
   "dependencies": {
-    "font-obfuscator": "workspace:*",
+    "pua-font-obfuscator": "workspace:*",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   },

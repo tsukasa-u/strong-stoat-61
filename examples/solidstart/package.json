@@ -1,5 +1,5 @@
 {
-  "name": "font-obfuscator-example-solidstart",
+  "name": "pua-font-obfuscator-example-solidstart",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,7 @@
   "dependencies": {
     "@solidjs/router": "^0.15.3",
     "@solidjs/start": "^1.1.0",
-    "font-obfuscator": "workspace:*",
+    "pua-font-obfuscator": "workspace:*",
     "solid-js": "^1.9.12"
   },
   "devDependencies": {

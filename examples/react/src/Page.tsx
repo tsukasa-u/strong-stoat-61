@@ -28,10 +28,10 @@ export function ReactPage(props: ReactPageProps) {
     <html lang="ja">
       <head>
         <meta charSet="utf-8" />
-        <title>Font Obfuscator Demo (React SSR)</title>
+        <title>PUA Font Obfuscator Demo (React SSR)</title>
       </head>
       <body>
-        <h1>Font Obfuscator Demo (React SSR)</h1>
+        <h1>PUA Font Obfuscator Demo (React SSR)</h1>
         <nav>
           <a href="/">基本難読化</a> | <a href="/pre-encoded">事前難読化状態</a>
         </nav>

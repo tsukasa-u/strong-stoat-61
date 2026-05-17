@@ -1,5 +1,5 @@
 import type { Express, Request as ExpressRequest, Response as ExpressResponse } from "express";
-import type { FontObfuscator } from "font-obfuscator";
+import type { FontObfuscator } from "pua-font-obfuscator";
 import { renderDemoView } from "../views/demoViews.tsx";
 
 const SELECTORS = [".secret"];

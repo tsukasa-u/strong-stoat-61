@@ -33,7 +33,7 @@ export function serveFetch(handler: (req: Request) => Promise<Response> | Respon
       }
       res.end();
     } catch (error) {
-      console.error("[font-obfuscator] unhandled error:", error);
+      console.error("[pua-font-obfuscator] unhandled error:", error);
       res.statusCode = 500;
       res.setHeader("content-type", "text/plain; charset=utf-8");
       res.end("Internal Server Error");

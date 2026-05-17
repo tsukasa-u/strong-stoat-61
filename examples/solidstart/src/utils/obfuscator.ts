@@ -1,4 +1,4 @@
-import { FontObfuscator } from "font-obfuscator";
+import { FontObfuscator } from "pua-font-obfuscator";
 
 /**
  * Shared FontObfuscator singleton for SolidStart server hooks.

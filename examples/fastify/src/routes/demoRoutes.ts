@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import type { FontObfuscator } from "font-obfuscator";
+import type { FontObfuscator } from "pua-font-obfuscator";
 import { renderDemoView } from "../views/demoViews.tsx";
 
 const SELECTORS = [".secret"];

@@ -1,5 +1,5 @@
 import type { MiddlewareHandler } from "astro";
-import { FontObfuscator, obfuscateHtmlResponse } from "font-obfuscator";
+import { FontObfuscator, obfuscateHtmlResponse } from "pua-font-obfuscator";
 
 const obfuscator = new FontObfuscator({
   fontUrl:

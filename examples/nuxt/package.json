@@ -1,12 +1,12 @@
 {
-  "name": "font-obfuscator-example-nuxt",
+  "name": "pua-font-obfuscator-example-nuxt",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "nuxt dev"
   },
   "dependencies": {
-    "font-obfuscator": "workspace:*",
+    "pua-font-obfuscator": "workspace:*",
     "nuxt": "^4.0.0"
   }
 }

@@ -1,5 +1,5 @@
 {
-  "name": "font-obfuscator-example-express",
+  "name": "pua-font-obfuscator-example-express",
   "private": true,
   "type": "module",
   "scripts": {
@@ -7,7 +7,7 @@
   },
   "dependencies": {
     "express": "^5.1.0",
-    "font-obfuscator": "workspace:*"
+    "pua-font-obfuscator": "workspace:*"
   },
   "devDependencies": {
     "@types/express": "^5.0.3",

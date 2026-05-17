@@ -50,7 +50,7 @@ function pageCard(pathname: string): { title: string; body: ReactNode } {
 export function renderDemoView(pathname: string): string {
   const content = pageCard(pathname);
   return "<!doctype html>" + renderToStaticMarkup(
-    <DemoLayout title={content.title} heading="Font Obfuscator Demo (Fastify)">
+    <DemoLayout title={content.title} heading="PUA Font Obfuscator Demo (Fastify)">
       {content.body}
     </DemoLayout>,
   );

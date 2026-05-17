@@ -1,5 +1,5 @@
 /**
- * Generic Fetch example — Font Obfuscator adapter
+ * Generic Fetch example — PUA Font Obfuscator adapter
  *
  * Any runtime that uses the Fetch API for its HTTP server (Node, Bun,
  * Cloudflare Workers, …) can use withFetchObfuscation directly.
@@ -8,7 +8,7 @@
  *   pnpm example:fetch
  */
 
-import { FontObfuscator, withFetchObfuscation } from "font-obfuscator";
+import { FontObfuscator, withFetchObfuscation } from "pua-font-obfuscator";
 import { serveFetch } from "../../lib/nodeServer.ts";
 
 const FONT_URL =
@@ -20,7 +20,7 @@ const obfuscator = new FontObfuscator({
   budgetPolicy: "adaptive",
   variantAllocator: "frequency-weighted",
   onBudgetDegrade: (e) =>
-    console.warn(`[font-obfuscator] variant shortfall: ${e.variantShortfall}/${e.totalChars} chars`),
+    console.warn(`[pua-font-obfuscator] variant shortfall: ${e.variantShortfall}/${e.totalChars} chars`),
 });
 
 // ── base handler ───────────────────────────────────────────────────────────
@@ -31,7 +31,7 @@ function baseHandler(_req: Request): Response {
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <title>Fetch + Font Obfuscator</title>
+  <title>Fetch + PUA Font Obfuscator</title>
 </head>
 <body>
   <h1>Generic Fetch example</h1>

@@ -1,5 +1,5 @@
 {
-  "name": "font-obfuscator-example-astro",
+  "name": "pua-font-obfuscator-example-astro",
   "private": true,
   "type": "module",
   "scripts": {
@@ -7,6 +7,6 @@
   },
   "dependencies": {
     "astro": "^5.0.0",
-    "font-obfuscator": "workspace:*"
+    "pua-font-obfuscator": "workspace:*"
   }
 }
