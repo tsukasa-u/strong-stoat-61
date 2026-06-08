@@ -9,7 +9,7 @@
     "@sveltejs/adapter-auto": "^4.0.0",
     "@sveltejs/kit": "^2.60.1",
     "pua-font-obfuscator": "workspace:*",
-    "svelte": "^5.0.0"
+    "svelte": "^5.55.7"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
