@@ -69,7 +69,7 @@
   },
   "dependencies": {
     "he": "^1.2.0",
-    "opentype.js": "2.0.0",
+    "opentype.js": "^2.0.0",
     "wawoff2": "^2.0.1"
   },
   "devDependencies": {
