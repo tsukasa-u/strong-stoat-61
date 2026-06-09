@@ -1,6 +1,6 @@
 {
   "name": "pua-font-obfuscator",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Server-side HTML font obfuscation library.",
   "keywords": [
     "font-obfuscation",
