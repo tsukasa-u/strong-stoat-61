@@ -6,7 +6,7 @@
     "dev": "astro dev"
   },
   "dependencies": {
-    "astro": "^6.4.6",
+    "astro": "^7.1.0",
     "pua-font-obfuscator": "workspace:*"
   }
 }
