@@ -7,7 +7,7 @@
   },
   "dependencies": {
     "@sveltejs/adapter-auto": "^4.0.0",
-    "@sveltejs/kit": "^2.60.1",
+    "@sveltejs/kit": "^2.69.1",
     "pua-font-obfuscator": "workspace:*",
     "svelte": "^5.55.7"
   },
