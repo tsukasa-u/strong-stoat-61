@@ -193,3 +193,17 @@ pnpm build
 pnpm verify:examples
 pnpm exec tsx scripts/playwright-browser-test.ts
 ```
+
+## Deno Deploy向けメモ
+
+Deno Deployで examples 配下のworkspace依存までインストールしないように、リポジトリ直下に次の設定を置いてください。
+
+```ini
+recursive-install=false
+```
+
+その上で、Deno DeployのInstall commandは次を指定します。
+
+```bash
+pnpm install --frozen-lockfile
+```

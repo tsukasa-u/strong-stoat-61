@@ -195,3 +195,17 @@ pnpm build
 pnpm verify:examples
 pnpm exec tsx scripts/playwright-browser-test.ts
 ```
+
+## Deno Deploy Note
+
+To avoid installing example workspace dependencies on Deno Deploy, keep this repo-level setting:
+
+```ini
+recursive-install=false
+```
+
+Then set Deno Deploy install command to:
+
+```bash
+pnpm install --frozen-lockfile
+```
