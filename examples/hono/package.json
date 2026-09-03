@@ -8,10 +8,10 @@
   "dependencies": {
     "@hono/node-server": "^1.19.15",
     "pua-font-obfuscator": "workspace:*",
-    "hono": "^4.12.34"
+    "hono": "catalog:"
   },
   "devDependencies": {
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "tsx": "catalog:",
+    "typescript": "catalog:"
   }
 }

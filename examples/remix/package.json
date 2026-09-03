@@ -9,12 +9,12 @@
     "@remix-run/node": "^2.15.0",
     "@remix-run/react": "^2.15.0",
     "pua-font-obfuscator": "workspace:*",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react": "catalog:",
+    "react-dom": "catalog:"
   },
   "devDependencies": {
     "@remix-run/dev": "^2.15.0",
-    "typescript": "^5.9.3",
-    "vite": "^8.0.16"
+    "typescript": "catalog:",
+    "vite": "catalog:"
   }
 }

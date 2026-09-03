@@ -74,18 +74,18 @@
   },
   "devDependencies": {
     "@types/he": "^1.2.3",
-    "@types/node": "^22.19.20",
-    "@vue/server-renderer": "^3.5.35",
-    "hono": "^4.12.24",
+    "@types/node": "catalog:",
+    "@vue/server-renderer": "catalog:",
+    "hono": "catalog:",
     "playwright": "^1.60.0",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
-    "solid-js": "^1.9.13",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "solid-js": "catalog:",
     "tsup": "^8.5.1",
-    "tsx": "^4.22.4",
-    "typescript": "^5.9.3",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
     "vitest": "^3.2.6",
-    "vue": "^3.5.35"
+    "vue": "catalog:"
   },
   "pnpm": {
     "overrides": {

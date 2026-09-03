@@ -9,11 +9,11 @@
     "@solidjs/router": "^0.15.3",
     "@solidjs/start": "^1.1.0",
     "pua-font-obfuscator": "workspace:*",
-    "solid-js": "^1.9.12"
+    "solid-js": "catalog:"
   },
   "devDependencies": {
-    "typescript": "^5.9.3",
+    "typescript": "catalog:",
     "vinxi": "^0.5.3",
-    "vite": "^8.0.16"
+    "vite": "catalog:"
   }
 }
