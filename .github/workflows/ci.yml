@@ -27,7 +27,7 @@ jobs:
           bun-version: latest
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --config.recursive-install=true
 
       - name: Type check
         run: pnpm check
