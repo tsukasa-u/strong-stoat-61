@@ -6,7 +6,7 @@
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
-    "fastify": "^5.6.1",
+    "fastify": "^5.12.1",
     "pua-font-obfuscator": "workspace:*"
   },
   "devDependencies": {
